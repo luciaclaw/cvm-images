@@ -7,3 +7,4 @@
 *.tar
 *.tar.gz
 tmp/
+node_modules/
