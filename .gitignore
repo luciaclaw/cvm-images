@@ -1,0 +1,9 @@
+.env
+.env.*
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.tar
+*.tar.gz
+tmp/
