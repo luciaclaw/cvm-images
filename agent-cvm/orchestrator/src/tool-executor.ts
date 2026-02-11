@@ -98,6 +98,10 @@ function buildConfirmationDescription(
       return `Delete calendar event: ${args.eventId || 'unknown'}`;
     case 'slack.send':
       return `Send Slack message to ${args.channel || 'unknown channel'}`;
+    case 'browser.click':
+      return `Click "${args.target || 'element'}" on the current page`;
+    case 'browser.type':
+      return `Type text into "${args.selector || 'input'}" on the current page`;
     default:
       return `Execute ${toolName} with ${Object.keys(args).length} arguments`;
   }
