@@ -5,6 +5,8 @@ Proxies requests to the LLM backend (Ollama for dev, Phala GPU TEE for prod).
 The orchestrator calls this service at http://localhost:8000/v1/chat/completions.
 """
 
+from typing import Literal, Union
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -26,6 +28,34 @@ class ChatCompletionRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 2048
     stream: bool = False
+
+
+# --- Vision (multimodal) models ---
+
+class TextContent(BaseModel):
+    type: Literal["text"]
+    text: str
+
+
+class ImageUrl(BaseModel):
+    url: str
+
+
+class ImageContent(BaseModel):
+    type: Literal["image_url"]
+    image_url: ImageUrl
+
+
+class VisionMessage(BaseModel):
+    role: str
+    content: list[Union[TextContent, ImageContent]]
+
+
+class VisionCompletionRequest(BaseModel):
+    messages: list[VisionMessage]
+    model: str | None = None
+    temperature: float = 0.3
+    max_tokens: int = 2048
 
 
 @app.get("/health")
@@ -69,6 +99,31 @@ async def _stream_response(messages, model, temperature, max_tokens):
     async for chunk in stream_chat_completion(messages, model, temperature, max_tokens):
         yield f"data: {chunk}\n\n"
     yield "data: [DONE]\n\n"
+
+
+@app.post("/v1/vision/completions")
+async def create_vision_completion(request: VisionCompletionRequest):
+    """Multimodal vision completion — accepts text + image_url content parts."""
+    messages = []
+    for m in request.messages:
+        parts = []
+        for part in m.content:
+            if part.type == "text":
+                parts.append({"type": "text", "text": part.text})
+            elif part.type == "image_url":
+                parts.append({"type": "image_url", "image_url": {"url": part.image_url.url}})
+        messages.append({"role": m.role, "content": parts})
+
+    try:
+        result = await chat_completion(
+            messages=messages,
+            model=request.model,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Vision LLM backend error: {str(e)}")
 
 
 if __name__ == "__main__":
