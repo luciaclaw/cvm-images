@@ -9,6 +9,8 @@ services:
     ports:
       - "8080:8080"
       - "8000:8000"
+    volumes:
+      - lucia-data:/data
     environment:
       - PORT=8080
       - INFERENCE_URL=http://localhost:8000
@@ -18,8 +20,20 @@ services:
       - MODEL_NAME=${MODEL_NAME:-deepseek/deepseek-chat-v3-0324}
       - VAULT_MASTER_KEY=${VAULT_MASTER_KEY:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
+      - DATA_DIR=/data
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - SLACK_CLIENT_ID=${SLACK_CLIENT_ID:-}
+      - SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET:-}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@luciaclaw.com}
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-http://localhost:8080/oauth/callback}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
       interval: 10s
       timeout: 3s
       retries: 3
+
+volumes:
+  lucia-data:

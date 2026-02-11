@@ -9,12 +9,16 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "@luciaclaw/protocol": "file:../../../platform-protocol",
+    "better-sqlite3": "^12.6.2",
     "express": "^4.21.2",
-    "ws": "^8.18.0",
-    "@luciaclaw/protocol": "file:../../../platform-protocol"
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.0",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.5.13",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"

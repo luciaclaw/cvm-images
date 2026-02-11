@@ -12,6 +12,7 @@ import type {
 } from '@luciaclaw/protocol';
 import { PROTOCOL_VERSION } from '@luciaclaw/protocol';
 import { routeMessage } from './router.js';
+import { setActiveSendFn } from './chat.js';
 
 const subtle = globalThis.crypto.subtle;
 
@@ -91,6 +92,8 @@ export async function handleHandshake(ws: WebSocket): Promise<void> {
 
         if (inner.type === 'handshake.complete') {
           console.log('[orchestrator] E2E channel established');
+          // Set the send function for tool executor to push messages to client
+          setActiveSendFn((msg) => sendEncrypted(ws, sessionKey!, msg));
           return;
         }
 
@@ -119,6 +122,7 @@ export async function handleHandshake(ws: WebSocket): Promise<void> {
   ws.on('close', () => {
     console.log('[orchestrator] Client disconnected');
     sessionKey = null;
+    setActiveSendFn(null);
   });
 }
 

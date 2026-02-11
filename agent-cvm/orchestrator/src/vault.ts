@@ -8,6 +8,9 @@
  * Phase 2+: TDX sealing key integration via dstack SDK.
  */
 
+import type { CredentialInfo } from '@luciaclaw/protocol';
+import { getDb, encrypt, decrypt } from './storage.js';
+
 const subtle = globalThis.crypto.subtle;
 
 interface EncryptedEntry {
@@ -18,37 +21,59 @@ interface EncryptedEntry {
 const store = new Map<string, EncryptedEntry>();
 let vaultKey: CryptoKey | null = null;
 
-async function getVaultKey(): Promise<CryptoKey> {
-  if (vaultKey) return vaultKey;
-
+async function getBaseKey(): Promise<CryptoKey> {
   const masterKeyHex = process.env.VAULT_MASTER_KEY;
   if (!masterKeyHex) {
     // Generate a random key for development
-    vaultKey = await subtle.generateKey(
+    const key = await subtle.generateKey(
       { name: 'AES-GCM', length: 256 },
       false,
       ['encrypt', 'decrypt']
     );
     console.warn('[vault] Using ephemeral key — secrets will not persist across restarts');
-    return vaultKey;
+    return key;
   }
 
-  // Derive key from master secret using HKDF
+  const rawKey = Buffer.from(masterKeyHex, 'hex');
+  return subtle.importKey('raw', rawKey, 'HKDF', false, ['deriveKey']);
+}
+
+async function deriveKeyWithInfo(info: string): Promise<CryptoKey> {
+  const masterKeyHex = process.env.VAULT_MASTER_KEY;
+  if (!masterKeyHex) {
+    // No master key — generate ephemeral
+    return subtle.generateKey(
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
   const rawKey = Buffer.from(masterKeyHex, 'hex');
   const baseKey = await subtle.importKey('raw', rawKey, 'HKDF', false, ['deriveKey']);
-  vaultKey = await subtle.deriveKey(
+  return subtle.deriveKey(
     {
       name: 'HKDF',
       hash: 'SHA-256',
       salt: new TextEncoder().encode('lucia-vault-v1'),
-      info: new TextEncoder().encode('secrets-vault'),
+      info: new TextEncoder().encode(info),
     },
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt', 'decrypt']
   );
+}
+
+async function getVaultKey(): Promise<CryptoKey> {
+  if (vaultKey) return vaultKey;
+  vaultKey = await deriveKeyWithInfo('secrets-vault');
   return vaultKey;
+}
+
+/** Derive a separate key for memory/storage encryption (different from vault key) */
+export async function deriveMemoryKey(): Promise<CryptoKey> {
+  return deriveKeyWithInfo('memory-encryption');
 }
 
 /** Store a secret (encrypted at rest). */
@@ -88,4 +113,73 @@ export function deleteSecret(key: string): boolean {
 /** List all secret keys (not values). */
 export function listSecretKeys(): string[] {
   return [...store.keys()];
+}
+
+// --- Service Credential Management (backed by SQLite) ---
+
+/** Store or update a service credential in encrypted SQLite */
+export async function setServiceCredential(
+  service: string,
+  label: string,
+  credentialType: string,
+  value: string,
+  scopes?: string[]
+): Promise<void> {
+  const valueEnc = await encrypt(value);
+  const db = getDb();
+
+  db.prepare(`
+    INSERT INTO credentials (service, label, credential_type, value_enc, scopes, connected, created_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?)
+    ON CONFLICT(service) DO UPDATE SET
+      label = excluded.label,
+      credential_type = excluded.credential_type,
+      value_enc = excluded.value_enc,
+      scopes = excluded.scopes,
+      connected = 1
+  `).run(service, label, credentialType, valueEnc, scopes ? JSON.stringify(scopes) : null, Date.now());
+}
+
+/** Retrieve a decrypted service credential value */
+export async function getServiceCredential(service: string): Promise<string | null> {
+  const db = getDb();
+  const row = db.prepare(
+    'SELECT value_enc FROM credentials WHERE service = ? AND connected = 1'
+  ).get(service) as { value_enc: string } | undefined;
+
+  if (!row) return null;
+
+  // Update last_used_at
+  db.prepare('UPDATE credentials SET last_used_at = ? WHERE service = ?')
+    .run(Date.now(), service);
+
+  return decrypt(row.value_enc);
+}
+
+/** Delete a service credential */
+export function deleteServiceCredential(service: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM credentials WHERE service = ?').run(service);
+  return result.changes > 0;
+}
+
+/** List service credentials (metadata only, no secret values) */
+export function listServiceCredentials(serviceFilter?: string): CredentialInfo[] {
+  const db = getDb();
+  let rows;
+  if (serviceFilter) {
+    rows = db.prepare('SELECT * FROM credentials WHERE service = ?').all(serviceFilter) as any[];
+  } else {
+    rows = db.prepare('SELECT * FROM credentials ORDER BY created_at DESC').all() as any[];
+  }
+
+  return rows.map((row) => ({
+    service: row.service,
+    label: row.label,
+    credentialType: row.credential_type,
+    connected: row.connected === 1,
+    createdAt: row.created_at,
+    lastUsedAt: row.last_used_at || undefined,
+    scopes: row.scopes ? JSON.parse(row.scopes) : undefined,
+  }));
 }

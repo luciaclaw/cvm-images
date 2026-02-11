@@ -8,3 +8,4 @@
 *.tar.gz
 tmp/
 node_modules/
+dist/

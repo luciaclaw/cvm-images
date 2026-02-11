@@ -4,6 +4,9 @@
 # --- Stage 1: Build TypeScript orchestrator ---
 FROM node:22-slim AS orchestrator-build
 
+# Install build tools for native modules (better-sqlite3)
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential python3 && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build/protocol
 COPY platform-protocol/package.json platform-protocol/tsconfig.json ./
 COPY platform-protocol/src ./src
@@ -20,8 +23,8 @@ RUN npm run build
 # --- Stage 2: Runtime ---
 FROM node:22-slim AS runtime
 
-# Install Python for inference bridge
-RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*
+# Install Python for inference bridge + build tools for native modules
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip python3-venv build-essential && rm -rf /var/lib/apt/lists/*
 
 # Copy orchestrator
 WORKDIR /app/orchestrator
@@ -33,6 +36,10 @@ WORKDIR /app/inference-bridge
 COPY cvm-images/agent-cvm/inference-bridge/requirements.txt .
 RUN python3 -m venv /app/venv && /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 COPY cvm-images/agent-cvm/inference-bridge/src ./src
+
+# Create data directory for SQLite
+RUN mkdir -p /data && chown node:node /data
+VOLUME ["/data"]
 
 # Entry script
 WORKDIR /app

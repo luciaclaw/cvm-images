@@ -2,10 +2,30 @@
  * Message router — dispatches decrypted messages to handlers.
  */
 
-import type { MessageEnvelope, ChatMessagePayload, ToolConfirmResponsePayload, ModelsListPayload } from '@luciaclaw/protocol';
+import type {
+  MessageEnvelope,
+  ChatMessagePayload,
+  ToolConfirmResponsePayload,
+  ModelsListPayload,
+  CredentialSetPayload,
+  CredentialDeletePayload,
+  CredentialListPayload,
+  ConversationsListPayload,
+  ConversationsLoadPayload,
+  ConversationsDeletePayload,
+  OAuthInitPayload,
+  PushSubscribePayload,
+  PushUnsubscribePayload,
+  IntegrationsListPayload,
+} from '@luciaclaw/protocol';
 import { handleChatMessage } from './chat.js';
 import { handleToolConfirmation } from './tools.js';
 import { fetchModels, getCurrentModel } from './inference.js';
+import { handleCredentialSet, handleCredentialDelete, handleCredentialList } from './credentials-handler.js';
+import { listConversations, loadConversation, deleteConversation } from './memory.js';
+import { handleOAuthInit } from './oauth.js';
+import { handlePushSubscribe, handlePushUnsubscribe } from './push.js';
+import { handleIntegrationsList } from './integrations.js';
 
 export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelope | null> {
   switch (msg.type) {
@@ -18,6 +38,41 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
 
     case 'models.list':
       return handleModelsList(msg.payload as ModelsListPayload);
+
+    // Credential management
+    case 'credentials.set':
+      return handleCredentialSet(msg.payload as CredentialSetPayload);
+
+    case 'credentials.delete':
+      return handleCredentialDelete(msg.payload as CredentialDeletePayload);
+
+    case 'credentials.list':
+      return handleCredentialList(msg.payload as CredentialListPayload);
+
+    // Conversation management
+    case 'conversations.list':
+      return handleConversationsList(msg.payload as ConversationsListPayload);
+
+    case 'conversations.load':
+      return handleConversationsLoad(msg.payload as ConversationsLoadPayload);
+
+    case 'conversations.delete':
+      return handleConversationsDelete(msg.payload as ConversationsDeletePayload);
+
+    // OAuth
+    case 'oauth.init':
+      return handleOAuthInit(msg.payload as OAuthInitPayload);
+
+    // Push notifications
+    case 'push.subscribe':
+      return handlePushSubscribe(msg.payload as PushSubscribePayload);
+
+    case 'push.unsubscribe':
+      return handlePushUnsubscribe(msg.payload as PushUnsubscribePayload);
+
+    // Integrations
+    case 'integrations.list':
+      return handleIntegrationsList(msg.payload as IntegrationsListPayload);
 
     default:
       console.warn('[router] Unknown message type:', msg.type);
@@ -34,7 +89,7 @@ async function handleModelsList(payload: ModelsListPayload): Promise<MessageEnve
   try {
     const response = await fetchModels();
     // Only offer TEE-attested models
-    const TEE_MODELS = ['moonshotai/kimi-k2.5', 'phala/uncensored-24b'];
+    const TEE_MODELS = ['moonshotai/kimi-k2.5', 'phala/uncensored-24b', 'z-ai/glm-5'];
     const teeModels = response.data.filter((m) => TEE_MODELS.includes(m.id));
 
     const models = teeModels.map((m) => {
@@ -70,4 +125,49 @@ async function handleModelsList(payload: ModelsListPayload): Promise<MessageEnve
       payload: { code: 4000, message: 'Failed to fetch available models' },
     };
   }
+}
+
+async function handleConversationsList(
+  payload: ConversationsListPayload
+): Promise<MessageEnvelope> {
+  const conversations = await listConversations(payload.limit, payload.offset);
+  return {
+    id: crypto.randomUUID(),
+    type: 'conversations.response',
+    timestamp: Date.now(),
+    payload: { conversations },
+  };
+}
+
+async function handleConversationsLoad(
+  payload: ConversationsLoadPayload
+): Promise<MessageEnvelope> {
+  const { messages, total } = await loadConversation(
+    payload.conversationId,
+    payload.limit,
+    payload.offset
+  );
+  return {
+    id: crypto.randomUUID(),
+    type: 'conversations.response',
+    timestamp: Date.now(),
+    payload: {
+      conversationId: payload.conversationId,
+      messages,
+      totalMessages: total,
+    },
+  };
+}
+
+async function handleConversationsDelete(
+  payload: ConversationsDeletePayload
+): Promise<MessageEnvelope> {
+  deleteConversation(payload.conversationId);
+  const conversations = await listConversations();
+  return {
+    id: crypto.randomUUID(),
+    type: 'conversations.response',
+    timestamp: Date.now(),
+    payload: { conversations },
+  };
 }
