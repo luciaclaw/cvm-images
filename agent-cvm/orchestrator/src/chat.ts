@@ -30,6 +30,10 @@ export function setActiveSendFn(fn: SendFn | null): void {
   activeSendFn = fn;
 }
 
+export function getActiveSendFn(): SendFn | null {
+  return activeSendFn;
+}
+
 export async function handleChatMessage(
   messageId: string,
   payload: ChatMessagePayload

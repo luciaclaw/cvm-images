@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import http from 'http';
 import { handleHandshake } from './handshake.js';
 import { handleOAuthCallback } from './oauth.js';
+import { getActiveSendFn } from './chat.js';
 import { getDb } from './storage.js';
 
 export function startServer(port: number): void {
@@ -47,7 +48,10 @@ export function startServer(port: number): void {
       res.status(400).send(`<html><body><h2>Connection Failed</h2><p>${payload.error}</p><p>Please try again from the Lucia settings page.</p></body></html>`);
     }
 
-    // TODO: Send the oauth.callback message to the connected PWA client via WebSocket
+    const sendFn = getActiveSendFn();
+    if (sendFn) {
+      sendFn(result);
+    }
   });
 
   const server = http.createServer(app);
