@@ -123,58 +123,72 @@ export async function setServiceCredential(
   label: string,
   credentialType: string,
   value: string,
-  scopes?: string[]
+  scopes?: string[],
+  account: string = 'default'
 ): Promise<void> {
   const valueEnc = await encrypt(value);
   const db = getDb();
 
   db.prepare(`
-    INSERT INTO credentials (service, label, credential_type, value_enc, scopes, connected, created_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?)
-    ON CONFLICT(service) DO UPDATE SET
+    INSERT INTO credentials (service, account, label, credential_type, value_enc, scopes, connected, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    ON CONFLICT(service, account) DO UPDATE SET
       label = excluded.label,
       credential_type = excluded.credential_type,
       value_enc = excluded.value_enc,
       scopes = excluded.scopes,
       connected = 1
-  `).run(service, label, credentialType, valueEnc, scopes ? JSON.stringify(scopes) : null, Date.now());
+  `).run(service, account, label, credentialType, valueEnc, scopes ? JSON.stringify(scopes) : null, Date.now());
 }
 
 /** Retrieve a decrypted service credential value */
-export async function getServiceCredential(service: string): Promise<string | null> {
+export async function getServiceCredential(service: string, account: string = 'default'): Promise<string | null> {
   const db = getDb();
   const row = db.prepare(
-    'SELECT value_enc FROM credentials WHERE service = ? AND connected = 1'
-  ).get(service) as { value_enc: string } | undefined;
+    'SELECT value_enc FROM credentials WHERE service = ? AND account = ? AND connected = 1'
+  ).get(service, account) as { value_enc: string } | undefined;
 
   if (!row) return null;
 
   // Update last_used_at
-  db.prepare('UPDATE credentials SET last_used_at = ? WHERE service = ?')
-    .run(Date.now(), service);
+  db.prepare('UPDATE credentials SET last_used_at = ? WHERE service = ? AND account = ?')
+    .run(Date.now(), service, account);
 
   return decrypt(row.value_enc);
 }
 
 /** Delete a service credential */
-export function deleteServiceCredential(service: string): boolean {
+export function deleteServiceCredential(service: string, account: string = 'default'): boolean {
   const db = getDb();
-  const result = db.prepare('DELETE FROM credentials WHERE service = ?').run(service);
+  const result = db.prepare('DELETE FROM credentials WHERE service = ? AND account = ?').run(service, account);
   return result.changes > 0;
 }
 
 /** List service credentials (metadata only, no secret values) */
-export function listServiceCredentials(serviceFilter?: string): CredentialInfo[] {
+export function listServiceCredentials(serviceFilter?: string, accountFilter?: string): CredentialInfo[] {
   const db = getDb();
-  let rows;
+  let query = 'SELECT * FROM credentials';
+  const conditions: string[] = [];
+  const params: string[] = [];
+
   if (serviceFilter) {
-    rows = db.prepare('SELECT * FROM credentials WHERE service = ?').all(serviceFilter) as any[];
-  } else {
-    rows = db.prepare('SELECT * FROM credentials ORDER BY created_at DESC').all() as any[];
+    conditions.push('service = ?');
+    params.push(serviceFilter);
   }
+  if (accountFilter) {
+    conditions.push('account = ?');
+    params.push(accountFilter);
+  }
+  if (conditions.length > 0) {
+    query += ' WHERE ' + conditions.join(' AND ');
+  }
+  query += ' ORDER BY created_at DESC';
+
+  const rows = db.prepare(query).all(...params) as any[];
 
   return rows.map((row) => ({
     service: row.service,
+    ...(row.account !== 'default' ? { account: row.account } : {}),
     label: row.label,
     credentialType: row.credential_type,
     connected: row.connected === 1,

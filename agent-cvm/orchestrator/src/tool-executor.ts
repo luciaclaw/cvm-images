@@ -104,6 +104,14 @@ function buildConfirmationDescription(
       return `Click "${args.target || 'element'}" on the current page`;
     case 'browser.type':
       return `Type text into "${args.selector || 'input'}" on the current page`;
+    case 'github.create_issue':
+      return `Create GitHub issue "${args.title || 'Untitled'}" in ${args.owner || '?'}/${args.repo || '?'}`;
+    case 'github.comment':
+      return `Comment on ${args.owner || '?'}/${args.repo || '?'}#${args.issue_number || '?'}`;
+    case 'github.trigger_workflow':
+      return `Trigger workflow "${args.workflow_id || '?'}" on ${args.owner || '?'}/${args.repo || '?'} (ref: ${args.ref || '?'})`;
+    case 'discord.send':
+      return `Send Discord message to channel ${args.channel_id || 'unknown'}`;
     default:
       return `Execute ${toolName} with ${Object.keys(args).length} arguments`;
   }

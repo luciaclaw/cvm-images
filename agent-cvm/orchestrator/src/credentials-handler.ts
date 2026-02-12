@@ -20,10 +20,11 @@ import {
 export async function handleCredentialSet(
   payload: CredentialSetPayload
 ): Promise<MessageEnvelope> {
-  const { service, label, credentialType, value, scopes } = payload;
+  const { service, account, label, credentialType, value, scopes } = payload;
+  const acct = account || 'default';
 
-  await setServiceCredential(service, label, credentialType, value, scopes);
-  console.log(`[credentials] Stored credential for service: ${service}`);
+  await setServiceCredential(service, label, credentialType, value, scopes, acct);
+  console.log(`[credentials] Stored credential for ${service}:${acct}`);
 
   return {
     id: crypto.randomUUID(),
@@ -38,13 +39,14 @@ export async function handleCredentialSet(
 export async function handleCredentialDelete(
   payload: CredentialDeletePayload
 ): Promise<MessageEnvelope> {
-  const { service } = payload;
-  const deleted = deleteServiceCredential(service);
+  const { service, account } = payload;
+  const acct = account || 'default';
+  const deleted = deleteServiceCredential(service, acct);
 
   if (deleted) {
-    console.log(`[credentials] Deleted credential for service: ${service}`);
+    console.log(`[credentials] Deleted credential for ${service}:${acct}`);
   } else {
-    console.warn(`[credentials] No credential found for service: ${service}`);
+    console.warn(`[credentials] No credential found for ${service}:${acct}`);
   }
 
   return {
@@ -60,7 +62,7 @@ export async function handleCredentialDelete(
 export async function handleCredentialList(
   payload: CredentialListPayload
 ): Promise<MessageEnvelope> {
-  const credentials = listServiceCredentials(payload.service);
+  const credentials = listServiceCredentials(payload.service, payload.account);
 
   return {
     id: crypto.randomUUID(),

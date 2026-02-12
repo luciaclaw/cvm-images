@@ -21,7 +21,7 @@ interface OAuthConfig {
 }
 
 /** Pending PKCE challenges indexed by state parameter */
-const pendingFlows = new Map<string, { service: string; codeVerifier: string; scopes: string[] }>();
+const pendingFlows = new Map<string, { service: string; account: string; codeVerifier: string; scopes: string[] }>();
 
 function getOAuthConfig(service: string): OAuthConfig | null {
   const baseRedirectUri = process.env.OAUTH_REDIRECT_URI || 'http://localhost:8080/oauth/callback';
@@ -43,6 +43,15 @@ function getOAuthConfig(service: string): OAuthConfig | null {
         tokenUrl: 'https://slack.com/api/oauth.v2.access',
         clientId: process.env.SLACK_CLIENT_ID || '',
         clientSecret: process.env.SLACK_CLIENT_SECRET || '',
+        redirectUri: baseRedirectUri,
+      };
+    case 'github':
+      return {
+        service: 'github',
+        authUrl: 'https://github.com/login/oauth/authorize',
+        tokenUrl: 'https://github.com/login/oauth/access_token',
+        clientId: process.env.GITHUB_CLIENT_ID || '',
+        clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
         redirectUri: baseRedirectUri,
       };
     default:
@@ -91,9 +100,10 @@ export async function handleOAuthInit(
   const { verifier, challenge } = await generatePKCE();
   const state = crypto.randomUUID();
 
-  // Store pending flow
+  // Store pending flow with account
   pendingFlows.set(state, {
     service: payload.service,
+    account: payload.account || 'default',
     codeVerifier: verifier,
     scopes: payload.scopes,
   });
@@ -166,7 +176,10 @@ export async function handleOAuthCallback(
     // Exchange code for tokens
     const tokenResponse = await fetch(config.tokenUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
       body: new URLSearchParams({
         client_id: config.clientId,
         client_secret: config.clientSecret,
@@ -196,10 +209,11 @@ export async function handleOAuthCallback(
       `${flow.service} OAuth`,
       'oauth',
       tokenPayload,
-      flow.scopes
+      flow.scopes,
+      flow.account
     );
 
-    console.log(`[oauth] Successfully authenticated ${flow.service}`);
+    console.log(`[oauth] Successfully authenticated ${flow.service}:${flow.account}`);
 
     return {
       id: crypto.randomUUID(),
@@ -229,8 +243,8 @@ export async function handleOAuthCallback(
 }
 
 /** Get a valid access token for a service, refreshing if expired */
-export async function getAccessToken(service: string): Promise<string | null> {
-  const raw = await getServiceCredential(service);
+export async function getAccessToken(service: string, account: string = 'default'): Promise<string | null> {
+  const raw = await getServiceCredential(service, account);
   if (!raw) return null;
 
   const tokens = JSON.parse(raw);
@@ -249,7 +263,10 @@ export async function getAccessToken(service: string): Promise<string | null> {
   try {
     const refreshResponse = await fetch(config.tokenUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
       body: new URLSearchParams({
         client_id: config.clientId,
         client_secret: config.clientSecret,
@@ -271,8 +288,8 @@ export async function getAccessToken(service: string): Promise<string | null> {
       token_type: refreshData.token_type || 'Bearer',
     });
 
-    await setServiceCredential(service, `${service} OAuth`, 'oauth', updated);
-    console.log(`[oauth] Refreshed token for ${service}`);
+    await setServiceCredential(service, `${service} OAuth`, 'oauth', updated, undefined, account);
+    console.log(`[oauth] Refreshed token for ${service}:${account}`);
 
     return refreshData.access_token;
   } catch (err) {

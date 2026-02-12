@@ -54,6 +54,23 @@ const INTEGRATIONS: IntegrationDefinition[] = [
     capabilities: ['telegram.send', 'telegram.read', 'telegram.get_chat'],
     icon: 'telegram',
   },
+  {
+    service: 'github',
+    name: 'GitHub',
+    description: 'Create issues, read PRs, comment, and trigger workflows',
+    authType: 'oauth',
+    requiredScopes: ['repo', 'workflow', 'read:org'],
+    capabilities: ['github.list_repos', 'github.read_issue', 'github.create_issue', 'github.read_pr', 'github.comment', 'github.trigger_workflow'],
+    icon: 'github',
+  },
+  {
+    service: 'discord',
+    name: 'Discord',
+    description: 'Send and read messages, list channels and guilds',
+    authType: 'api_key',
+    capabilities: ['discord.send', 'discord.read', 'discord.list_channels', 'discord.list_guilds'],
+    icon: 'discord',
+  },
 ];
 
 /** Get the full list of integrations with connection status */

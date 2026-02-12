@@ -55,14 +55,16 @@ export function getDb(): Database.Database {
     );
 
     CREATE TABLE IF NOT EXISTS credentials (
-      service TEXT PRIMARY KEY,
+      service TEXT NOT NULL,
+      account TEXT NOT NULL DEFAULT 'default',
       label TEXT NOT NULL,
       credential_type TEXT NOT NULL,
       value_enc TEXT NOT NULL,
       scopes TEXT,
       connected INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
-      last_used_at INTEGER
+      last_used_at INTEGER,
+      PRIMARY KEY (service, account)
     );
 
     CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -88,6 +90,31 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_schedules_next_run
       ON schedules(status, next_run_at);
   `);
+
+  // Migrate old single-PK credentials table to compound PK (service, account)
+  const tableInfo = db.pragma('table_info(credentials)') as any[];
+  const hasAccountColumn = tableInfo.some((col: any) => col.name === 'account');
+  if (!hasAccountColumn) {
+    db.exec(`
+      ALTER TABLE credentials RENAME TO credentials_old;
+      CREATE TABLE credentials (
+        service TEXT NOT NULL,
+        account TEXT NOT NULL DEFAULT 'default',
+        label TEXT NOT NULL,
+        credential_type TEXT NOT NULL,
+        value_enc TEXT NOT NULL,
+        scopes TEXT,
+        connected INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER,
+        PRIMARY KEY (service, account)
+      );
+      INSERT INTO credentials (service, account, label, credential_type, value_enc, scopes, connected, created_at, last_used_at)
+        SELECT service, 'default', label, credential_type, value_enc, scopes, connected, created_at, last_used_at FROM credentials_old;
+      DROP TABLE credentials_old;
+    `);
+    console.log('[storage] Migrated credentials table to compound PK (service, account)');
+  }
 
   return db;
 }
