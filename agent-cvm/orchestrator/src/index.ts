@@ -15,6 +15,7 @@ import { registerWebSearchTools } from './tools/web-search.js';
 import { registerBrowserTools } from './tools/browser.js';
 import { registerGithubTools } from './tools/github.js';
 import { registerDiscordTools } from './tools/discord.js';
+import { registerMemoryTools } from './tools/memory.js';
 
 // Register all tools
 registerGmailTools();
@@ -26,6 +27,7 @@ registerWebSearchTools();
 registerBrowserTools();
 registerGithubTools();
 registerDiscordTools();
+registerMemoryTools();
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 

@@ -89,6 +89,27 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_schedules_next_run
       ON schedules(status, next_run_at);
+
+    CREATE TABLE IF NOT EXISTS memories (
+      id TEXT PRIMARY KEY,
+      content_enc TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'general',
+      conversation_id TEXT,
+      created_at INTEGER NOT NULL,
+      last_accessed_at INTEGER,
+      access_count INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+      content,
+      category
+    );
+
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      key TEXT PRIMARY KEY,
+      value_enc TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
   `);
 
   // Migrate old single-PK credentials table to compound PK (service, account)

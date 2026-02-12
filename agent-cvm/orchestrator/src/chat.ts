@@ -13,6 +13,7 @@ import {
 import { callInference, callVisionInference } from './inference.js';
 import { getToolsForInference, getAllTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
+import { getRelevantMemories, extractAndStoreMemories } from './persistent-memory.js';
 
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -81,10 +82,16 @@ export async function handleChatMessage(
     augmentedContent = `${attachmentContext}\n\n${content}`;
   }
 
+  // Inject relevant memories into system prompt
+  const memoryContext = await getRelevantMemories(augmentedContent);
+  const systemPrompt = memoryContext
+    ? `${SYSTEM_PROMPT}\n\n${memoryContext}`
+    : SYSTEM_PROMPT;
+
   // Build prompt from conversation history
   const history = await getHistory(activeConvId);
   const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string }> = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     ...history.slice(0, -1).map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     { role: 'user' as const, content: augmentedContent },
   ];
@@ -174,6 +181,11 @@ export async function handleChatMessage(
     },
     activeConvId
   );
+
+  // Fire-and-forget memory extraction
+  extractAndStoreMemories(content, responseContent, activeConvId).catch((err) => {
+    console.error('[chat] Memory extraction failed:', err);
+  });
 
   return {
     id: responseId,

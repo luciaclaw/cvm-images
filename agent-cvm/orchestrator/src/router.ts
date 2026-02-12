@@ -21,6 +21,9 @@ import type {
   ScheduleUpdatePayload,
   ScheduleDeletePayload,
   ScheduleListPayload,
+  MemoryListPayload,
+  MemorySearchPayload,
+  MemoryDeletePayload,
 } from '@luciaclaw/protocol';
 import { handleChatMessage } from './chat.js';
 import { handleToolConfirmation } from './tools.js';
@@ -31,6 +34,7 @@ import { handleOAuthInit } from './oauth.js';
 import { handlePushSubscribe, handlePushUnsubscribe } from './push.js';
 import { handleIntegrationsList } from './integrations.js';
 import { handleScheduleCreate, handleScheduleUpdate, handleScheduleDelete, handleScheduleList } from './schedule-handler.js';
+import { handleMemoryList, handleMemorySearch, handleMemoryDelete } from './memory-handler.js';
 
 export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelope | null> {
   switch (msg.type) {
@@ -91,6 +95,16 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
 
     case 'schedule.list':
       return handleScheduleList(msg.payload as ScheduleListPayload);
+
+    // Persistent memory
+    case 'memory.list':
+      return handleMemoryList(msg.payload as MemoryListPayload);
+
+    case 'memory.search':
+      return handleMemorySearch(msg.payload as MemorySearchPayload);
+
+    case 'memory.delete':
+      return handleMemoryDelete(msg.payload as MemoryDeletePayload);
 
     default:
       console.warn('[router] Unknown message type:', msg.type);
