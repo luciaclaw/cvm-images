@@ -70,6 +70,9 @@ function validateUrl(url: string): void {
   }
 }
 
+/** @internal Exported only for testing */
+export const _testExports = { isPrivateHost, validateUrl };
+
 async function launchBrowser(): Promise<Browser> {
   if (browser?.isConnected()) return browser;
 

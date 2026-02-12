@@ -90,6 +90,9 @@ function getBraveApiKey(): string {
   return key;
 }
 
+/** @internal Exported only for testing */
+export const _testExports = { isPrivateHost, htmlToText, extractTitle };
+
 export function registerWebSearchTools(): void {
   registerTool({
     name: 'web.search',
