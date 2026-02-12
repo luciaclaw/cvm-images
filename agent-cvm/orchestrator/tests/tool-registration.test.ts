@@ -3,6 +3,7 @@ import { getAllTools } from '../src/tool-registry.js';
 import { registerGmailTools } from '../src/tools/gmail.js';
 import { registerCalendarTools } from '../src/tools/calendar.js';
 import { registerSlackTools } from '../src/tools/slack.js';
+import { registerTelegramTools } from '../src/tools/telegram.js';
 import { registerVisionTools } from '../src/tools/vision.js';
 import { registerWebSearchTools } from '../src/tools/web-search.js';
 import { registerBrowserTools } from '../src/tools/browser.js';
@@ -12,6 +13,7 @@ describe('tool registration', () => {
     registerGmailTools();
     registerCalendarTools();
     registerSlackTools();
+    registerTelegramTools();
     registerVisionTools();
     registerWebSearchTools();
     registerBrowserTools();
@@ -19,7 +21,7 @@ describe('tool registration', () => {
 
   it('registers all 19 tools', () => {
     const tools = getAllTools();
-    expect(tools.length).toBe(19);
+    expect(tools.length).toBe(22);
   });
 
   it('includes all expected tool names', () => {
@@ -41,6 +43,11 @@ describe('tool registration', () => {
     expect(names).toContain('slack.send');
     expect(names).toContain('slack.read');
     expect(names).toContain('slack.list_channels');
+
+    // Telegram (3)
+    expect(names).toContain('telegram.send');
+    expect(names).toContain('telegram.read');
+    expect(names).toContain('telegram.get_chat');
 
     // Vision (1)
     expect(names).toContain('vision.analyze');

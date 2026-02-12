@@ -46,6 +46,14 @@ const INTEGRATIONS: IntegrationDefinition[] = [
     capabilities: ['slack.send', 'slack.read', 'slack.list_channels'],
     icon: 'slack',
   },
+  {
+    service: 'telegram',
+    name: 'Telegram',
+    description: 'Send and receive messages via Telegram Bot',
+    authType: 'api_key',
+    capabilities: ['telegram.send', 'telegram.read', 'telegram.get_chat'],
+    icon: 'telegram',
+  },
 ];
 
 /** Get the full list of integrations with connection status */
