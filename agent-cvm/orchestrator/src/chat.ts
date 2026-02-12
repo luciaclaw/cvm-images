@@ -13,7 +13,7 @@ import {
 import { callInference, callVisionInference } from './inference.js';
 import { getToolsForInference, getAllTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
-import { getRelevantMemories, extractAndStoreMemories } from './persistent-memory.js';
+import { getRelevantMemories, extractAndStoreMemories, getPreference } from './persistent-memory.js';
 
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -82,11 +82,22 @@ export async function handleChatMessage(
     augmentedContent = `${attachmentContext}\n\n${content}`;
   }
 
+  // Load personality preferences for first-class prompt positioning
+  const personalityTone = await getPreference('personality_tone');
+  const personalityInstructions = await getPreference('personality_instructions');
+
+  let personalizedPrompt = SYSTEM_PROMPT;
+  if (personalityTone || personalityInstructions) {
+    personalizedPrompt += '\n\n## Personality guidelines:';
+    if (personalityTone) personalizedPrompt += `\n- Communication tone: ${personalityTone}`;
+    if (personalityInstructions) personalizedPrompt += `\n- Custom instructions: ${personalityInstructions}`;
+  }
+
   // Inject relevant memories into system prompt
   const memoryContext = await getRelevantMemories(augmentedContent);
   const systemPrompt = memoryContext
-    ? `${SYSTEM_PROMPT}\n\n${memoryContext}`
-    : SYSTEM_PROMPT;
+    ? `${personalizedPrompt}\n\n${memoryContext}`
+    : personalizedPrompt;
 
   // Build prompt from conversation history
   const history = await getHistory(activeConvId);

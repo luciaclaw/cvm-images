@@ -24,6 +24,13 @@ import type {
   MemoryListPayload,
   MemorySearchPayload,
   MemoryDeletePayload,
+  PreferencesSetPayload,
+  PreferencesListPayload,
+  WorkflowCreatePayload,
+  WorkflowUpdatePayload,
+  WorkflowDeletePayload,
+  WorkflowListPayload,
+  WorkflowExecutePayload,
 } from '@luciaclaw/protocol';
 import { handleChatMessage } from './chat.js';
 import { handleToolConfirmation } from './tools.js';
@@ -35,6 +42,8 @@ import { handlePushSubscribe, handlePushUnsubscribe } from './push.js';
 import { handleIntegrationsList } from './integrations.js';
 import { handleScheduleCreate, handleScheduleUpdate, handleScheduleDelete, handleScheduleList } from './schedule-handler.js';
 import { handleMemoryList, handleMemorySearch, handleMemoryDelete } from './memory-handler.js';
+import { handlePreferencesSet, handlePreferencesList } from './preferences-handler.js';
+import { handleWorkflowCreate, handleWorkflowUpdate, handleWorkflowDelete, handleWorkflowList, handleWorkflowExecute } from './workflow-handler.js';
 
 export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelope | null> {
   switch (msg.type) {
@@ -96,6 +105,22 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
     case 'schedule.list':
       return handleScheduleList(msg.payload as ScheduleListPayload);
 
+    // Workflows
+    case 'workflow.create':
+      return handleWorkflowCreate(msg.payload as WorkflowCreatePayload);
+
+    case 'workflow.update':
+      return handleWorkflowUpdate(msg.payload as WorkflowUpdatePayload);
+
+    case 'workflow.delete':
+      return handleWorkflowDelete(msg.payload as WorkflowDeletePayload);
+
+    case 'workflow.list':
+      return handleWorkflowList(msg.payload as WorkflowListPayload);
+
+    case 'workflow.execute':
+      return handleWorkflowExecute(msg.payload as WorkflowExecutePayload);
+
     // Persistent memory
     case 'memory.list':
       return handleMemoryList(msg.payload as MemoryListPayload);
@@ -105,6 +130,13 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
 
     case 'memory.delete':
       return handleMemoryDelete(msg.payload as MemoryDeletePayload);
+
+    // Preferences
+    case 'preferences.set':
+      return handlePreferencesSet(msg.payload as PreferencesSetPayload);
+
+    case 'preferences.list':
+      return handlePreferencesList(msg.payload as PreferencesListPayload);
 
     default:
       console.warn('[router] Unknown message type:', msg.type);
@@ -117,44 +149,53 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
   }
 }
 
+/** Static metadata for TEE-attested models — always available as fallback */
+const TEE_MODELS = [
+  { id: 'moonshotai/kimi-k2.5', name: 'Kimi K2.5', provider: 'moonshotai', contextLength: 131072, inputPrice: 0.20, outputPrice: 0.60 },
+  { id: 'phala/uncensored-24b', name: 'Uncensored 24B', provider: 'phala', contextLength: 32768, inputPrice: 0.10, outputPrice: 0.30 },
+  { id: 'z-ai/glm-5', name: 'GLM-5', provider: 'z-ai', contextLength: 131072, inputPrice: 0.50, outputPrice: 1.50 },
+];
+
 async function handleModelsList(payload: ModelsListPayload): Promise<MessageEnvelope> {
+  const currentModel = getCurrentModel();
+
   try {
     const response = await fetchModels();
-    // Only offer TEE-attested models
-    const TEE_MODELS = ['moonshotai/kimi-k2.5', 'phala/uncensored-24b', 'z-ai/glm-5'];
-    const teeModels = response.data.filter((m) => TEE_MODELS.includes(m.id));
+    const upstreamMap = new Map(response.data.map((m: { id: string }) => [m.id, m]));
 
-    const models = teeModels.map((m) => {
-      const provider = m.id.split('/')[0] || 'unknown';
-      const name = m.name || m.id;
-      return {
-        id: m.id,
-        name,
-        provider,
-        contextLength: m.context_length || 0,
-        inputPrice: parseFloat(m.pricing?.prompt || '0') * 1_000_000,
-        outputPrice: parseFloat(m.pricing?.completion || '0') * 1_000_000,
-      };
+    // Always return all whitelisted models; use upstream data when available, fallback to static
+    const models = TEE_MODELS.map((tee) => {
+      const upstream = upstreamMap.get(tee.id) as {
+        id: string; name?: string; context_length?: number;
+        pricing?: { prompt?: string; completion?: string };
+      } | undefined;
+      if (upstream) {
+        return {
+          id: upstream.id,
+          name: upstream.name || tee.name,
+          provider: tee.provider,
+          contextLength: upstream.context_length || tee.contextLength,
+          inputPrice: parseFloat(upstream.pricing?.prompt || '0') * 1_000_000 || tee.inputPrice,
+          outputPrice: parseFloat(upstream.pricing?.completion || '0') * 1_000_000 || tee.outputPrice,
+        };
+      }
+      return { ...tee };
     });
-
-    const filtered = models;
 
     return {
       id: crypto.randomUUID(),
       type: 'models.response',
       timestamp: Date.now(),
-      payload: {
-        models: filtered,
-        currentModel: getCurrentModel(),
-      },
+      payload: { models, currentModel },
     };
   } catch (err) {
-    console.error('[router] Failed to fetch models:', err);
+    console.error('[router] Failed to fetch models from upstream, using static list:', err);
+    // Upstream unavailable: return all whitelisted models with static metadata
     return {
       id: crypto.randomUUID(),
-      type: 'error',
+      type: 'models.response',
       timestamp: Date.now(),
-      payload: { code: 4000, message: 'Failed to fetch available models' },
+      payload: { models: TEE_MODELS, currentModel },
     };
   }
 }

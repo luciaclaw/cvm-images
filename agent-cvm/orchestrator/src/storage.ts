@@ -110,6 +110,47 @@ export function getDb(): Database.Database {
       value_enc TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      name_enc TEXT NOT NULL,
+      description_enc TEXT NOT NULL,
+      definition_enc TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_executions (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      context_enc TEXT,
+      trigger TEXT NOT NULL DEFAULT 'manual',
+      started_at INTEGER,
+      completed_at INTEGER,
+      error TEXT,
+      FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_step_executions (
+      id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      output_enc TEXT,
+      error TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      started_at INTEGER,
+      completed_at INTEGER,
+      FOREIGN KEY (execution_id) REFERENCES workflow_executions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_executions_workflow
+      ON workflow_executions(workflow_id, started_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_step_executions_exec
+      ON workflow_step_executions(execution_id);
   `);
 
   // Migrate old single-PK credentials table to compound PK (service, account)

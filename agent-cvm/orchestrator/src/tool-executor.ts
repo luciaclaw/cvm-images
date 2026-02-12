@@ -112,6 +112,8 @@ function buildConfirmationDescription(
       return `Trigger workflow "${args.workflow_id || '?'}" on ${args.owner || '?'}/${args.repo || '?'} (ref: ${args.ref || '?'})`;
     case 'discord.send':
       return `Send Discord message to channel ${args.channel_id || 'unknown'}`;
+    case 'workflow.execute':
+      return `Execute workflow "${args.workflowId || 'unknown'}" (multi-step automation)`;
     default:
       return `Execute ${toolName} with ${Object.keys(args).length} arguments`;
   }

@@ -16,6 +16,8 @@ import { registerBrowserTools } from './tools/browser.js';
 import { registerGithubTools } from './tools/github.js';
 import { registerDiscordTools } from './tools/discord.js';
 import { registerMemoryTools } from './tools/memory.js';
+import { registerWorkflowTools } from './tools/workflow.js';
+import { recoverRunningExecutions } from './workflow-engine.js';
 
 // Register all tools
 registerGmailTools();
@@ -28,7 +30,11 @@ registerBrowserTools();
 registerGithubTools();
 registerDiscordTools();
 registerMemoryTools();
+registerWorkflowTools();
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
 startServer(PORT);
+
+// Recover any workflows that were running when the CVM restarted
+recoverRunningExecutions().catch((err) => console.error('[workflow] Recovery failed:', err));
