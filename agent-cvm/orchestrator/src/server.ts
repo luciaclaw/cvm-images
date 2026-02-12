@@ -9,11 +9,15 @@ import { handleHandshake } from './handshake.js';
 import { handleOAuthCallback } from './oauth.js';
 import { getActiveSendFn } from './chat.js';
 import { getDb } from './storage.js';
+import { startScheduler } from './scheduler.js';
 
 export function startServer(port: number): void {
   // Initialize SQLite database on startup
   getDb();
   console.log('[storage] Database initialized');
+
+  // Start the cron scheduler
+  startScheduler();
 
   const app = express();
   app.get('/health', (_req, res) => {

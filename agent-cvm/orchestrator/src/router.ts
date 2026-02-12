@@ -17,6 +17,10 @@ import type {
   PushSubscribePayload,
   PushUnsubscribePayload,
   IntegrationsListPayload,
+  ScheduleCreatePayload,
+  ScheduleUpdatePayload,
+  ScheduleDeletePayload,
+  ScheduleListPayload,
 } from '@luciaclaw/protocol';
 import { handleChatMessage } from './chat.js';
 import { handleToolConfirmation } from './tools.js';
@@ -26,6 +30,7 @@ import { listConversations, loadConversation, deleteConversation } from './memor
 import { handleOAuthInit } from './oauth.js';
 import { handlePushSubscribe, handlePushUnsubscribe } from './push.js';
 import { handleIntegrationsList } from './integrations.js';
+import { handleScheduleCreate, handleScheduleUpdate, handleScheduleDelete, handleScheduleList } from './schedule-handler.js';
 
 export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelope | null> {
   switch (msg.type) {
@@ -73,6 +78,19 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
     // Integrations
     case 'integrations.list':
       return handleIntegrationsList(msg.payload as IntegrationsListPayload);
+
+    // Schedules
+    case 'schedule.create':
+      return handleScheduleCreate(msg.payload as ScheduleCreatePayload);
+
+    case 'schedule.update':
+      return handleScheduleUpdate(msg.payload as ScheduleUpdatePayload);
+
+    case 'schedule.delete':
+      return handleScheduleDelete(msg.payload as ScheduleDeletePayload);
+
+    case 'schedule.list':
+      return handleScheduleList(msg.payload as ScheduleListPayload);
 
     default:
       console.warn('[router] Unknown message type:', msg.type);

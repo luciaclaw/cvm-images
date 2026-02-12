@@ -2,7 +2,7 @@
  * Chat handler — conversation management, prompt construction, inference, tool calling.
  */
 
-import type { MessageEnvelope, ChatMessagePayload, ChatMessage } from '@luciaclaw/protocol';
+import type { MessageEnvelope, ChatMessagePayload, ChatMessage, Attachment } from '@luciaclaw/protocol';
 import {
   getHistory,
   addToHistory,
@@ -10,9 +10,11 @@ import {
   setCurrentConversation,
   autoTitleIfNeeded,
 } from './memory.js';
-import { callInference } from './inference.js';
+import { callInference, callVisionInference } from './inference.js';
 import { getToolsForInference, getAllTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
+
+const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 const MAX_TOOL_ITERATIONS = 5;
 
@@ -38,7 +40,7 @@ export async function handleChatMessage(
   messageId: string,
   payload: ChatMessagePayload
 ): Promise<MessageEnvelope> {
-  const { content, model, conversationId } = payload;
+  const { content, model, conversationId, attachments } = payload;
 
   // Switch to specified conversation or ensure one exists
   if (conversationId) {
@@ -46,12 +48,13 @@ export async function handleChatMessage(
   }
   const activeConvId = await getCurrentConversationId();
 
-  // Add user message to history
+  // Add user message to history (with attachments metadata, not data)
   await addToHistory(
     {
       messageId,
       role: 'user',
       content,
+      attachments: attachments?.map(a => ({ ...a, data: '[stored]' })),
       timestamp: Date.now(),
     },
     activeConvId
@@ -60,11 +63,30 @@ export async function handleChatMessage(
   // Auto-title the conversation from the first user message
   await autoTitleIfNeeded(activeConvId, content);
 
+  // Check for image attachments — route to vision inference
+  const imageAttachments = attachments?.filter(a => IMAGE_MIME_TYPES.has(a.mimeType)) || [];
+  const textAttachments = attachments?.filter(a => !IMAGE_MIME_TYPES.has(a.mimeType)) || [];
+
+  if (imageAttachments.length > 0) {
+    return handleVisionMessage(messageId, content, imageAttachments, textAttachments, activeConvId);
+  }
+
+  // Build context from text/PDF attachments
+  let augmentedContent = content;
+  if (textAttachments.length > 0) {
+    const attachmentContext = textAttachments.map(a => {
+      const decoded = Buffer.from(a.data, 'base64').toString('utf-8');
+      return `[Attached file: ${a.filename}]\n${decoded}`;
+    }).join('\n\n');
+    augmentedContent = `${attachmentContext}\n\n${content}`;
+  }
+
   // Build prompt from conversation history
   const history = await getHistory(activeConvId);
   const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string }> = [
     { role: 'system', content: SYSTEM_PROMPT },
-    ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    ...history.slice(0, -1).map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+    { role: 'user' as const, content: augmentedContent },
   ];
 
   // Get available tools for inference
@@ -151,6 +173,65 @@ export async function handleChatMessage(
       timestamp: Date.now(),
     },
     activeConvId
+  );
+
+  return {
+    id: responseId,
+    type: 'chat.response',
+    timestamp: Date.now(),
+    payload: { content: responseContent, model: usedModel },
+  };
+}
+
+/**
+ * Handle messages with image attachments via vision inference.
+ */
+async function handleVisionMessage(
+  messageId: string,
+  content: string,
+  imageAttachments: Attachment[],
+  textAttachments: Attachment[],
+  conversationId: string,
+): Promise<MessageEnvelope> {
+  // Build prompt including any text attachment context
+  let prompt = content;
+  if (textAttachments.length > 0) {
+    const textContext = textAttachments.map(a => {
+      const decoded = Buffer.from(a.data, 'base64').toString('utf-8');
+      return `[Attached file: ${a.filename}]\n${decoded}`;
+    }).join('\n\n');
+    prompt = `${textContext}\n\n${content}`;
+  }
+
+  let responseContent = '';
+  let usedModel = '';
+
+  try {
+    // Use the first image for vision inference (vision API typically handles one image)
+    const img = imageAttachments[0];
+    const dataUri = `data:${img.mimeType};base64,${img.data}`;
+
+    if (imageAttachments.length > 1) {
+      prompt += `\n\n(Note: ${imageAttachments.length} images were attached. Analyzing the first image: ${img.filename})`;
+    }
+
+    const result = await callVisionInference(dataUri, prompt);
+    responseContent = result.content;
+    usedModel = result.model;
+  } catch (err) {
+    console.error('[chat] Vision inference error:', err);
+    responseContent = 'I apologize, but I encountered an error analyzing the image. Please try again.';
+  }
+
+  const responseId = crypto.randomUUID();
+  await addToHistory(
+    {
+      messageId: responseId,
+      role: 'assistant',
+      content: responseContent,
+      timestamp: Date.now(),
+    },
+    conversationId
   );
 
   return {

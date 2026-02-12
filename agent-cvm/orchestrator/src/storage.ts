@@ -16,13 +16,15 @@ const subtle = globalThis.crypto.subtle;
 let db: Database.Database | null = null;
 let memoryKey: CryptoKey | null = null;
 
-const DATA_DIR = process.env.DATA_DIR || '/data';
-const DB_PATH = process.env.DB_PATH || `${DATA_DIR}/lucia.db`;
+function getDbPath(): string {
+  const dataDir = process.env.DATA_DIR || '/data';
+  return process.env.DB_PATH || `${dataDir}/lucia.db`;
+}
 
 export function getDb(): Database.Database {
   if (db) return db;
 
-  db = new Database(DB_PATH);
+  db = new Database(getDbPath());
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
@@ -68,6 +70,23 @@ export function getDb(): Database.Database {
       subscription_enc TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      name_enc TEXT NOT NULL,
+      cron_expression_enc TEXT NOT NULL,
+      timezone_enc TEXT NOT NULL,
+      prompt_enc TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      conversation_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_run_at INTEGER,
+      next_run_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_schedules_next_run
+      ON schedules(status, next_run_at);
   `);
 
   return db;
