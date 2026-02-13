@@ -20,6 +20,19 @@ logger = logging.getLogger(__name__)
 # Default STT model — Whisper Small V3 Turbo for low-latency on CPU TEE
 STT_MODEL = "whisper-small-v3-turbo"
 
+# Persistent HTTP client — reuses TCP connections to the LLM backend.
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0, connect=10.0),
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
+    return _http_client
+
 
 def _headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
@@ -30,15 +43,15 @@ def _headers() -> dict[str, str]:
 
 async def list_models() -> list[dict]:
     """Fetch available models from the LLM backend."""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(
-            f"{config.LLM_BACKEND_URL}/models",
-            headers=_headers(),
-        )
-        response.raise_for_status()
-        data = response.json()
-        # OpenAI-compatible /v1/models returns { data: [...] }
-        return data.get("data", [])
+    client = _get_client()
+    response = await client.get(
+        f"{config.LLM_BACKEND_URL}/models",
+        headers=_headers(),
+    )
+    response.raise_for_status()
+    data = response.json()
+    # OpenAI-compatible /v1/models returns { data: [...] }
+    return data.get("data", [])
 
 
 async def chat_completion(
@@ -63,30 +76,30 @@ async def chat_completion(
         payload["tools"] = tools
         payload["tool_choice"] = tool_choice or "auto"
 
+    client = _get_client()
+
     # Retry on 400 — some aggregator backends intermittently reject tool-calling
     # payloads when routed to an instance that doesn't support them.
     max_retries = 2
-    last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{config.LLM_BACKEND_URL}/chat/completions",
-                json=payload,
-                headers=_headers(),
+        response = await client.post(
+            f"{config.LLM_BACKEND_URL}/chat/completions",
+            json=payload,
+            headers=_headers(),
+        )
+        if response.status_code == 400 and attempt < max_retries:
+            body = response.text
+            logger.warning(
+                "LLM backend returned 400 (attempt %d/%d): %s",
+                attempt + 1, max_retries + 1, body[:200],
             )
-            if response.status_code == 400 and attempt < max_retries:
-                body = response.text
-                logger.warning(
-                    "LLM backend returned 400 (attempt %d/%d): %s",
-                    attempt + 1, max_retries + 1, body[:200],
-                )
-                await asyncio.sleep(0.5 * (attempt + 1))
-                continue
-            response.raise_for_status()
-            return response.json()
+            await asyncio.sleep(0.5 * (attempt + 1))
+            continue
+        response.raise_for_status()
+        return response.json()
 
     # Should not reach here, but just in case
-    raise last_exc or httpx.HTTPStatusError(
+    raise httpx.HTTPStatusError(
         "Max retries exceeded", request=response.request, response=response  # type: ignore[possibly-undefined]
     )
 
@@ -119,15 +132,15 @@ async def audio_transcription(
     if language:
         data["language"] = language
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{config.LLM_BACKEND_URL}/audio/transcriptions",
-            files=files,
-            data=data,
-            headers=headers,
-        )
-        response.raise_for_status()
-        return response.json()
+    client = _get_client()
+    response = await client.post(
+        f"{config.LLM_BACKEND_URL}/audio/transcriptions",
+        files=files,
+        data=data,
+        headers=headers,
+    )
+    response.raise_for_status()
+    return response.json()
 
 
 async def stream_chat_completion(
@@ -145,14 +158,14 @@ async def stream_chat_completion(
         "stream": True,
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        async with client.stream(
-            "POST",
-            f"{config.LLM_BACKEND_URL}/chat/completions",
-            json=payload,
-            headers=_headers(),
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    yield line[6:]
+    client = _get_client()
+    async with client.stream(
+        "POST",
+        f"{config.LLM_BACKEND_URL}/chat/completions",
+        json=payload,
+        headers=_headers(),
+    ) as response:
+        response.raise_for_status()
+        async for line in response.aiter_lines():
+            if line.startswith("data: "):
+                yield line[6:]
