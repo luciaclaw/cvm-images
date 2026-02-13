@@ -71,7 +71,9 @@ export function setCurrentModel(model: string): void {
 }
 
 export async function fetchModels(): Promise<ModelsResponse> {
-  const response = await fetch(`${INFERENCE_URL}/v1/models`);
+  const response = await fetch(`${INFERENCE_URL}/v1/models`, {
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!response.ok) {
     throw new Error(`Inference bridge returned ${response.status}: ${await response.text()}`);
   }
@@ -130,6 +132,7 @@ export async function callVisionInference(
       temperature: 0.3,
       max_tokens: 2048,
     }),
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!response.ok) {
@@ -168,6 +171,7 @@ export async function callTranscription(
       model: model || undefined,
       language: language || undefined,
     }),
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!response.ok) {
@@ -206,6 +210,7 @@ export async function callInference(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!response.ok) {

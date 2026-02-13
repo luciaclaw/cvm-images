@@ -57,6 +57,7 @@ async function pushLlmConfigToBridge(): Promise<void> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
     });
     if (!resp.ok) {
       const detail = await resp.text().catch(() => '');
@@ -65,7 +66,7 @@ async function pushLlmConfigToBridge(): Promise<void> {
     }
     console.log('[credentials] Pushed LLM config to inference bridge');
   } catch (err) {
-    console.warn('[credentials] Failed to reach inference bridge:', err);
+    console.warn('[credentials] Failed to reach inference bridge:', err instanceof Error ? err.message : err);
   }
 }
 
