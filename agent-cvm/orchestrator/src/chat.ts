@@ -82,11 +82,38 @@ export async function handleChatMessage(
     augmentedContent = `${attachmentContext}\n\n${content}`;
   }
 
-  // Load personality preferences for first-class prompt positioning
+  // Load personality and profile preferences
   const personalityTone = await getPreference('personality_tone');
   const personalityInstructions = await getPreference('personality_instructions');
+  const userTimezone = await getPreference('user_timezone') || 'UTC';
+  const userFullName = await getPreference('user_full_name');
+  const userPreferredName = await getPreference('user_preferred_name');
+  const agentName = await getPreference('agent_name') || 'Lucia';
 
   let personalizedPrompt = SYSTEM_PROMPT;
+
+  // Context section: date/time, names
+  const now = new Date();
+  let formattedDateTime: string;
+  try {
+    formattedDateTime = now.toLocaleString('en-US', { timeZone: userTimezone, dateStyle: 'full', timeStyle: 'short' });
+  } catch {
+    formattedDateTime = now.toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
+  }
+
+  personalizedPrompt += `\n\n## Context:`;
+  personalizedPrompt += `\n- Current date/time: ${formattedDateTime} (${userTimezone})`;
+  personalizedPrompt += `\n- Your name: ${agentName}`;
+  if (userFullName) {
+    const nameStr = userPreferredName
+      ? `${userFullName} (prefers to be called "${userPreferredName}")`
+      : userFullName;
+    personalizedPrompt += `\n- User's name: ${nameStr}`;
+  } else if (userPreferredName) {
+    personalizedPrompt += `\n- User prefers to be called: ${userPreferredName}`;
+  }
+
+  // Personality guidelines
   if (personalityTone || personalityInstructions) {
     personalizedPrompt += '\n\n## Personality guidelines:';
     if (personalityTone) personalizedPrompt += `\n- Communication tone: ${personalityTone}`;
