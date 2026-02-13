@@ -122,12 +122,13 @@ export async function listSessions(): Promise<Array<{
 
   const sessions = [];
   for (const row of rows) {
+    const label = await decrypt(row.label_enc);
     sessions.push({
       channel: row.channel,
       peerId: row.peer_id,
       sessionType: row.session_type,
       conversationId: row.conversation_id,
-      label: await decrypt(row.label_enc),
+      label: label ?? '(encrypted)',
       lastMessageAt: row.last_message_at,
     });
   }

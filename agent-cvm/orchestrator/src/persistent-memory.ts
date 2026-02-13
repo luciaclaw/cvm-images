@@ -93,6 +93,7 @@ export async function searchMemories(
   const results: MemoryEntry[] = [];
   for (const row of rows) {
     const content = await decrypt(row.content_enc);
+    if (content === null) continue; // skip undecryptable entries
     results.push({
       id: row.id,
       content,
@@ -143,6 +144,7 @@ export async function listMemories(
   const memories: MemoryEntry[] = [];
   for (const row of rows) {
     const content = await decrypt(row.content_enc);
+    if (content === null) continue; // skip undecryptable entries
     memories.push({
       id: row.id,
       content,
@@ -193,7 +195,7 @@ export async function getPreference(key: string): Promise<string | null> {
     | { value_enc: string }
     | undefined;
   if (!row) return null;
-  return decrypt(row.value_enc);
+  return await decrypt(row.value_enc);
 }
 
 export async function getAllPreferences(): Promise<Record<string, string>> {
@@ -205,7 +207,9 @@ export async function getAllPreferences(): Promise<Record<string, string>> {
 
   const prefs: Record<string, string> = {};
   for (const row of rows) {
-    prefs[row.key] = await decrypt(row.value_enc);
+    const value = await decrypt(row.value_enc);
+    if (value === null) continue; // skip undecryptable entries
+    prefs[row.key] = value;
   }
   return prefs;
 }

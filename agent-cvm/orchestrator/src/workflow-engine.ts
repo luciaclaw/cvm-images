@@ -336,11 +336,15 @@ export async function listWorkflows(status?: WorkflowStatus): Promise<WorkflowIn
 
   const results: WorkflowInfo[] = [];
   for (const row of rows) {
+    const name = await decrypt(row.name_enc);
+    const description = await decrypt(row.description_enc);
+    const defJson = await decrypt(row.definition_enc);
+    if (name === null || description === null || defJson === null) continue;
     results.push({
       id: row.id,
-      name: await decrypt(row.name_enc),
-      description: await decrypt(row.description_enc),
-      steps: JSON.parse(await decrypt(row.definition_enc)),
+      name,
+      description,
+      steps: JSON.parse(defJson),
       status: row.status,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -352,11 +356,15 @@ export async function listWorkflows(status?: WorkflowStatus): Promise<WorkflowIn
 export async function getWorkflowById(id: string): Promise<WorkflowInfo | null> {
   const row = getDb().prepare('SELECT * FROM workflows WHERE id = ?').get(id) as any;
   if (!row) return null;
+  const name = await decrypt(row.name_enc);
+  const description = await decrypt(row.description_enc);
+  const defJson = await decrypt(row.definition_enc);
+  if (name === null || description === null || defJson === null) return null;
   return {
     id: row.id,
-    name: await decrypt(row.name_enc),
-    description: await decrypt(row.description_enc),
-    steps: JSON.parse(await decrypt(row.definition_enc)),
+    name,
+    description,
+    steps: JSON.parse(defJson),
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -408,7 +416,8 @@ async function runExecution(executionId: string): Promise<void> {
   const workflow = await getWorkflowById(exec.workflow_id);
   if (!workflow) return;
 
-  const contextData = JSON.parse(await decrypt(exec.context_enc));
+  const contextJson = await decrypt(exec.context_enc);
+  const contextData = contextJson !== null ? JSON.parse(contextJson) : { variables: {} };
   const context: ExecutionContext = {
     steps: {},
     variables: contextData.variables || {},
@@ -421,10 +430,15 @@ async function runExecution(executionId: string): Promise<void> {
 
   for (const sr of stepRows) {
     if (sr.status === 'completed' && sr.output_enc) {
-      context.steps[sr.step_id] = {
-        output: JSON.parse(await decrypt(sr.output_enc)),
-        status: sr.status,
-      };
+      const outputJson = await decrypt(sr.output_enc);
+      if (outputJson !== null) {
+        context.steps[sr.step_id] = {
+          output: JSON.parse(outputJson),
+          status: sr.status,
+        };
+      } else {
+        context.steps[sr.step_id] = { status: sr.status };
+      }
     } else {
       context.steps[sr.step_id] = { status: sr.status };
     }
@@ -726,7 +740,10 @@ async function buildExecutionInfo(
       attempts: sr.attempts,
     };
     if (sr.output_enc) {
-      try { info.output = JSON.parse(await decrypt(sr.output_enc)); } catch {}
+      try {
+        const outputJson = await decrypt(sr.output_enc);
+        if (outputJson !== null) info.output = JSON.parse(outputJson);
+      } catch {}
     }
     if (sr.error) info.error = sr.error;
     if (sr.started_at) info.startedAt = sr.started_at;

@@ -101,12 +101,22 @@ function computeBackoff(retryCount: number, baseBackoffMs: number): number {
   return Math.min(delay, MAX_BACKOFF_MS);
 }
 
-/** Decrypt all encrypted fields on a schedule row */
-async function decryptScheduleRow(row: ScheduleRow): Promise<ScheduleInfo> {
+/** Decrypt all encrypted fields on a schedule row. Returns null if required fields are undecryptable. */
+async function decryptScheduleRow(row: ScheduleRow): Promise<ScheduleInfo | null> {
+  const name = await decrypt(row.name_enc);
+  const timezone = await decrypt(row.timezone_enc);
+  const prompt = await decrypt(row.prompt_enc);
+  if (name === null || timezone === null || prompt === null) return null;
+
+  const cronExpression = row.cron_expression_enc ? await decrypt(row.cron_expression_enc) : null;
+
   let delivery: DeliveryConfig | null = null;
   if (row.delivery_enc) {
     try {
-      delivery = JSON.parse(await decrypt(row.delivery_enc));
+      const deliveryJson = await decrypt(row.delivery_enc);
+      if (deliveryJson !== null) {
+        delivery = JSON.parse(deliveryJson);
+      }
     } catch {
       delivery = null;
     }
@@ -114,11 +124,11 @@ async function decryptScheduleRow(row: ScheduleRow): Promise<ScheduleInfo> {
 
   return {
     id: row.id,
-    name: await decrypt(row.name_enc),
+    name,
     scheduleType: (row.schedule_type || 'cron') as ScheduleType,
-    cronExpression: row.cron_expression_enc ? await decrypt(row.cron_expression_enc) : null,
-    timezone: await decrypt(row.timezone_enc),
-    prompt: await decrypt(row.prompt_enc),
+    cronExpression,
+    timezone,
+    prompt,
     status: row.status as ScheduleStatus,
     executionMode: (row.execution_mode || 'main') as ExecutionMode,
     delivery,
@@ -143,7 +153,7 @@ async function getScheduleById(id: string): Promise<ScheduleInfo | null> {
   const db = getDb();
   const row = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as ScheduleRow | undefined;
   if (!row) return null;
-  return decryptScheduleRow(row);
+  return await decryptScheduleRow(row);
 }
 
 /** Compute the nextRunAt for a schedule based on its type */
@@ -386,7 +396,8 @@ export async function listSchedules(statusFilter?: ScheduleStatus): Promise<Sche
 
   const schedules: ScheduleInfo[] = [];
   for (const row of rows) {
-    schedules.push(await decryptScheduleRow(row));
+    const schedule = await decryptScheduleRow(row);
+    if (schedule !== null) schedules.push(schedule);
   }
   return schedules;
 }

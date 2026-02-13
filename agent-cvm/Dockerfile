@@ -19,6 +19,8 @@ RUN node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8'
 RUN npm install
 COPY cvm-images/agent-cvm/orchestrator/src ./src
 RUN npm run build
+COPY cvm-images/agent-cvm/orchestrator/tests ./tests
+RUN npm test
 
 # --- Stage 2: Runtime ---
 FROM node:22-slim AS runtime

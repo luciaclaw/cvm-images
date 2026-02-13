@@ -150,11 +150,14 @@ export async function getServiceCredential(service: string, account: string = 'd
 
   if (!row) return null;
 
+  const value = await decrypt(row.value_enc);
+  if (value === null) return null; // undecryptable after key rotation
+
   // Update last_used_at
   db.prepare('UPDATE credentials SET last_used_at = ? WHERE service = ? AND account = ?')
     .run(Date.now(), service, account);
 
-  return decrypt(row.value_enc);
+  return value;
 }
 
 /** Delete a service credential */

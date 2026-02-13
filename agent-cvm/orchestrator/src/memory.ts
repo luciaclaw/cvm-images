@@ -70,9 +70,11 @@ export async function listConversations(
 
   const conversations: ConversationSummary[] = [];
   for (const row of rows) {
+    const title = await decrypt(row.title_enc);
+    if (title === null) continue; // skip undecryptable rows
     conversations.push({
       id: row.id,
-      title: await decrypt(row.title_enc),
+      title,
       messageCount: row.message_count,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -110,14 +112,19 @@ export async function loadConversation(
 
   const messages: ChatMessage[] = [];
   for (const row of rows) {
+    const content = await decrypt(row.content_enc);
+    if (content === null) continue; // skip undecryptable messages
     const msg: ChatMessage = {
       messageId: row.id,
       role: row.role as ChatMessage['role'],
-      content: await decrypt(row.content_enc),
+      content,
       timestamp: row.timestamp,
     };
     if (row.tool_calls_enc) {
-      msg.toolCalls = JSON.parse(await decrypt(row.tool_calls_enc));
+      const toolCallsJson = await decrypt(row.tool_calls_enc);
+      if (toolCallsJson !== null) {
+        msg.toolCalls = JSON.parse(toolCallsJson);
+      }
     }
     messages.push(msg);
   }

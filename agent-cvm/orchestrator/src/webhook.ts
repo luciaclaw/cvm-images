@@ -233,6 +233,10 @@ export function createWebhookRouter(): Router {
       }
 
       const secret = await decrypt(webhook.secret_enc);
+      if (secret === null) {
+        res.status(500).send('Webhook secret unavailable');
+        return;
+      }
       if (token === secret) {
         res.status(200).send(challenge);
         return;
@@ -260,6 +264,12 @@ export function createWebhookRouter(): Router {
 
     // Verify signature if present
     const secret = await decrypt(webhook.secret_enc);
+
+    if (secret === null) {
+      // Secret undecryptable after key rotation — cannot verify signatures
+      res.status(500).json({ error: 'Webhook secret unavailable' });
+      return;
+    }
 
     if (webhook.source === 'github') {
       const signature = req.headers['x-hub-signature-256'] as string;

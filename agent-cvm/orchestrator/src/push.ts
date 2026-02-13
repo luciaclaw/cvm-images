@@ -94,7 +94,9 @@ export async function sendPushNotification(
 
   for (const row of rows) {
     try {
-      const subscription: PushSubscription = JSON.parse(await decrypt(row.subscription_enc));
+      const subJson = await decrypt(row.subscription_enc);
+      if (subJson === null) continue; // skip undecryptable subscriptions
+      const subscription: PushSubscription = JSON.parse(subJson);
       await webpush.sendNotification(subscription as any, notificationPayload);
     } catch (err: any) {
       if (err.statusCode === 410 || err.statusCode === 404) {

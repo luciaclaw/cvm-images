@@ -237,18 +237,23 @@ export async function encrypt(plaintext: string): Promise<string> {
   return Buffer.from(combined).toString('base64');
 }
 
-/** Decrypt an AES-256-GCM encrypted value */
-export async function decrypt(packed: string): Promise<string> {
-  const key = await getMemoryKey();
-  const combined = Buffer.from(packed, 'base64');
-  const iv = combined.subarray(0, 12);
-  const ciphertext = combined.subarray(12);
-  const decrypted = await subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    key,
-    ciphertext
-  );
-  return new TextDecoder().decode(decrypted);
+/** Decrypt an AES-256-GCM encrypted value. Returns null if decryption fails (e.g. key rotation). */
+export async function decrypt(packed: string): Promise<string | null> {
+  try {
+    const key = await getMemoryKey();
+    const combined = Buffer.from(packed, 'base64');
+    const iv = combined.subarray(0, 12);
+    const ciphertext = combined.subarray(12);
+    const decrypted = await subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    console.warn('[storage] decrypt failed — data encrypted with a different key, skipping');
+    return null;
+  }
 }
 
 /** Close the database connection */
@@ -257,4 +262,9 @@ export function closeDb(): void {
     db.close();
     db = null;
   }
+}
+
+/** Reset cached memory key (used in tests to simulate key rotation) */
+export function _resetMemoryKey(): void {
+  memoryKey = null;
 }
