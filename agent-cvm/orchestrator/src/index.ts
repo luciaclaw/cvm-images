@@ -23,6 +23,7 @@ import { registerWorkflowTools } from './tools/workflow.js';
 import { registerCronTools } from './tools/cron.js';
 import { registerWebhookTools } from './tools/webhook.js';
 import { recoverRunningExecutions } from './workflow-engine.js';
+import { syncLlmConfigOnStartup } from './credentials-handler.js';
 
 // Register all tools
 registerGmailTools();
@@ -45,6 +46,9 @@ registerWebhookTools();
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
 startServer(PORT);
+
+// Sync vault-stored LLM config to the inference bridge (may have been set via UI before restart)
+syncLlmConfigOnStartup().catch((err) => console.error('[credentials] Startup LLM sync failed:', err));
 
 // Recover any workflows that were running when the CVM restarted
 recoverRunningExecutions().catch((err) => console.error('[workflow] Recovery failed:', err));
