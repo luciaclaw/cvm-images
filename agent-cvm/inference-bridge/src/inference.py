@@ -10,7 +10,7 @@ For local dev: Ollama, vLLM, or any local model server.
 import httpx
 from typing import AsyncIterator
 
-from .config import LLM_BACKEND_URL, LLM_API_KEY, MODEL_NAME
+from . import config
 
 # Default STT model — Whisper Small V3 Turbo for low-latency on CPU TEE
 STT_MODEL = "whisper-small-v3-turbo"
@@ -18,8 +18,8 @@ STT_MODEL = "whisper-small-v3-turbo"
 
 def _headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    if LLM_API_KEY:
-        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+    if config.LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {config.LLM_API_KEY}"
     return headers
 
 
@@ -27,7 +27,7 @@ async def list_models() -> list[dict]:
     """Fetch available models from the LLM backend."""
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(
-            f"{LLM_BACKEND_URL}/models",
+            f"{config.LLM_BACKEND_URL}/models",
             headers=_headers(),
         )
         response.raise_for_status()
@@ -47,7 +47,7 @@ async def chat_completion(
 ) -> dict:
     """Call the LLM backend with an OpenAI-compatible request."""
     payload = {
-        "model": model or MODEL_NAME,
+        "model": model or config.MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -60,7 +60,7 @@ async def chat_completion(
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
-            f"{LLM_BACKEND_URL}/chat/completions",
+            f"{config.LLM_BACKEND_URL}/chat/completions",
             json=payload,
             headers=_headers(),
         )
@@ -84,8 +84,8 @@ async def audio_transcription(
     use_model = model or STT_MODEL
 
     headers: dict[str, str] = {}
-    if LLM_API_KEY:
-        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+    if config.LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {config.LLM_API_KEY}"
 
     # Build multipart form data (OpenAI Whisper API format)
     files = {"file": (filename, audio_data, "application/octet-stream")}
@@ -98,7 +98,7 @@ async def audio_transcription(
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
-            f"{LLM_BACKEND_URL}/audio/transcriptions",
+            f"{config.LLM_BACKEND_URL}/audio/transcriptions",
             files=files,
             data=data,
             headers=headers,
@@ -115,7 +115,7 @@ async def stream_chat_completion(
 ) -> AsyncIterator[str]:
     """Stream chat completion chunks as SSE data lines."""
     payload = {
-        "model": model or MODEL_NAME,
+        "model": model or config.MODEL_NAME,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -125,7 +125,7 @@ async def stream_chat_completion(
     async with httpx.AsyncClient(timeout=120.0) as client:
         async with client.stream(
             "POST",
-            f"{LLM_BACKEND_URL}/chat/completions",
+            f"{config.LLM_BACKEND_URL}/chat/completions",
             json=payload,
             headers=_headers(),
         ) as response:

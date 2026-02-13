@@ -8,12 +8,13 @@ The orchestrator calls this service at http://localhost:8000/v1/chat/completions
 from typing import Any, Literal, Union
 import base64
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .inference import chat_completion, stream_chat_completion, list_models, audio_transcription
-from .config import HOST, PORT, MODEL_NAME
+from . import config
+from .config import HOST, PORT
 
 app = FastAPI(title="Lucia Inference Bridge", version="0.1.0")
 
@@ -78,12 +79,44 @@ async def health():
     return {"status": "ok", "service": "inference-bridge"}
 
 
+class InternalConfigUpdate(BaseModel):
+    llm_api_key: str | None = None
+    llm_backend_url: str | None = None
+    model_name: str | None = None
+
+
+@app.post("/internal/config")
+async def update_config(body: InternalConfigUpdate, request: Request):
+    """
+    Update LLM backend configuration at runtime.
+
+    Only reachable from localhost — the orchestrator calls this when the user
+    sets llm_backend credentials via the PWA settings UI.
+    """
+    client_host = request.client.host if request.client else None
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(status_code=403, detail="Only localhost access allowed")
+
+    updated = []
+    if body.llm_api_key is not None:
+        config.LLM_API_KEY = body.llm_api_key
+        updated.append("LLM_API_KEY")
+    if body.llm_backend_url is not None:
+        config.LLM_BACKEND_URL = body.llm_backend_url
+        updated.append("LLM_BACKEND_URL")
+    if body.model_name is not None:
+        config.MODEL_NAME = body.model_name
+        updated.append("MODEL_NAME")
+
+    return {"status": "ok", "updated": updated}
+
+
 @app.get("/v1/models")
 async def get_models():
     """Fetch available models from the LLM backend and return them."""
     try:
         models = await list_models()
-        return {"data": models, "default_model": MODEL_NAME}
+        return {"data": models, "default_model": config.MODEL_NAME}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch models: {str(e)}")
 

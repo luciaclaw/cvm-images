@@ -23,40 +23,63 @@ interface OAuthConfig {
 /** Pending PKCE challenges indexed by state parameter */
 const pendingFlows = new Map<string, { service: string; account: string; codeVerifier: string; scopes: string[] }>();
 
-function getOAuthConfig(service: string): OAuthConfig | null {
+async function getOAuthConfig(service: string): Promise<OAuthConfig | null> {
   const baseRedirectUri = process.env.OAUTH_REDIRECT_URI || 'http://localhost:8080/oauth/callback';
 
-  switch (service) {
-    case 'google':
-      return {
-        service: 'google',
-        authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-        tokenUrl: 'https://oauth2.googleapis.com/token',
-        clientId: process.env.GOOGLE_CLIENT_ID || '',
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-        redirectUri: baseRedirectUri,
-      };
-    case 'slack':
-      return {
-        service: 'slack',
-        authUrl: 'https://slack.com/oauth/v2/authorize',
-        tokenUrl: 'https://slack.com/api/oauth.v2.access',
-        clientId: process.env.SLACK_CLIENT_ID || '',
-        clientSecret: process.env.SLACK_CLIENT_SECRET || '',
-        redirectUri: baseRedirectUri,
-      };
-    case 'github':
-      return {
-        service: 'github',
-        authUrl: 'https://github.com/login/oauth/authorize',
-        tokenUrl: 'https://github.com/login/oauth/access_token',
-        clientId: process.env.GITHUB_CLIENT_ID || '',
-        clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
-        redirectUri: baseRedirectUri,
-      };
-    default:
-      return null;
+  // Static config per provider (URLs are always fixed)
+  const providers: Record<string, { authUrl: string; tokenUrl: string; envIdKey: string; envSecretKey: string; vaultService: string }> = {
+    google: {
+      authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+      tokenUrl: 'https://oauth2.googleapis.com/token',
+      envIdKey: 'GOOGLE_CLIENT_ID',
+      envSecretKey: 'GOOGLE_CLIENT_SECRET',
+      vaultService: 'google_oauth_config',
+    },
+    slack: {
+      authUrl: 'https://slack.com/oauth/v2/authorize',
+      tokenUrl: 'https://slack.com/api/oauth.v2.access',
+      envIdKey: 'SLACK_CLIENT_ID',
+      envSecretKey: 'SLACK_CLIENT_SECRET',
+      vaultService: 'slack_oauth_config',
+    },
+    github: {
+      authUrl: 'https://github.com/login/oauth/authorize',
+      tokenUrl: 'https://github.com/login/oauth/access_token',
+      envIdKey: 'GITHUB_CLIENT_ID',
+      envSecretKey: 'GITHUB_CLIENT_SECRET',
+      vaultService: 'github_oauth_config',
+    },
+  };
+
+  const provider = providers[service];
+  if (!provider) return null;
+
+  // Vault-first: check for runtime-configured OAuth credentials
+  let clientId = '';
+  let clientSecret = '';
+  const vaultValue = await getServiceCredential(provider.vaultService);
+  if (vaultValue) {
+    try {
+      const parsed = JSON.parse(vaultValue);
+      clientId = parsed.clientId || '';
+      clientSecret = parsed.clientSecret || '';
+    } catch {
+      // Malformed vault entry — fall through to env vars
+    }
   }
+
+  // Env-var fallback
+  if (!clientId) clientId = process.env[provider.envIdKey] || '';
+  if (!clientSecret) clientSecret = process.env[provider.envSecretKey] || '';
+
+  return {
+    service,
+    authUrl: provider.authUrl,
+    tokenUrl: provider.tokenUrl,
+    clientId,
+    clientSecret,
+    redirectUri: baseRedirectUri,
+  };
 }
 
 /** Generate a PKCE code verifier and challenge */
@@ -72,8 +95,8 @@ async function generatePKCE(): Promise<{ verifier: string; challenge: string }> 
 export async function handleOAuthInit(
   payload: OAuthInitPayload
 ): Promise<MessageEnvelope> {
-  const config = getOAuthConfig(payload.service);
-  if (!config) {
+  const oauthConfig = await getOAuthConfig(payload.service);
+  if (!oauthConfig) {
     return {
       id: crypto.randomUUID(),
       type: 'oauth.status',
@@ -85,7 +108,7 @@ export async function handleOAuthInit(
     };
   }
 
-  if (!config.clientId) {
+  if (!oauthConfig.clientId) {
     return {
       id: crypto.randomUUID(),
       type: 'error',
@@ -112,8 +135,8 @@ export async function handleOAuthInit(
   setTimeout(() => pendingFlows.delete(state), 10 * 60 * 1000);
 
   const params = new URLSearchParams({
-    client_id: config.clientId,
-    redirect_uri: config.redirectUri,
+    client_id: oauthConfig.clientId,
+    redirect_uri: oauthConfig.redirectUri,
     response_type: 'code',
     scope: payload.scopes.join(' '),
     state,
@@ -123,7 +146,7 @@ export async function handleOAuthInit(
     prompt: 'consent',
   });
 
-  const authUrl = `${config.authUrl}?${params.toString()}`;
+  const authUrl = `${oauthConfig.authUrl}?${params.toString()}`;
 
   return {
     id: crypto.randomUUID(),
@@ -158,8 +181,8 @@ export async function handleOAuthCallback(
   }
 
   pendingFlows.delete(state);
-  const config = getOAuthConfig(flow.service);
-  if (!config) {
+  const oauthConfig = await getOAuthConfig(flow.service);
+  if (!oauthConfig) {
     return {
       id: crypto.randomUUID(),
       type: 'oauth.callback',
@@ -174,17 +197,17 @@ export async function handleOAuthCallback(
 
   try {
     // Exchange code for tokens
-    const tokenResponse = await fetch(config.tokenUrl, {
+    const tokenResponse = await fetch(oauthConfig.tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json',
       },
       body: new URLSearchParams({
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
+        client_id: oauthConfig.clientId,
+        client_secret: oauthConfig.clientSecret,
         code,
-        redirect_uri: config.redirectUri,
+        redirect_uri: oauthConfig.redirectUri,
         grant_type: 'authorization_code',
         code_verifier: flow.codeVerifier,
       }),
@@ -257,19 +280,19 @@ export async function getAccessToken(service: string, account: string = 'default
   // Try to refresh
   if (!tokens.refresh_token) return null;
 
-  const config = getOAuthConfig(service);
-  if (!config) return null;
+  const oauthConfig = await getOAuthConfig(service);
+  if (!oauthConfig) return null;
 
   try {
-    const refreshResponse = await fetch(config.tokenUrl, {
+    const refreshResponse = await fetch(oauthConfig.tokenUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         'Accept': 'application/json',
       },
       body: new URLSearchParams({
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
+        client_id: oauthConfig.clientId,
+        client_secret: oauthConfig.clientSecret,
         refresh_token: tokens.refresh_token,
         grant_type: 'refresh_token',
       }),

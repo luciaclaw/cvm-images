@@ -6,6 +6,7 @@
  */
 
 import { registerTool } from '../tool-registry.js';
+import { getServiceCredential } from '../vault.js';
 
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';
 
@@ -82,12 +83,17 @@ function extractTitle(html: string): string | undefined {
   return match ? htmlToText(match[1]).trim() : undefined;
 }
 
-function getBraveApiKey(): string {
-  const key = process.env.BRAVE_SEARCH_API_KEY;
-  if (!key) {
-    throw new Error('BRAVE_SEARCH_API_KEY environment variable is not set. Web search is unavailable.');
+async function getBraveApiKey(): Promise<string> {
+  // Vault-first: check for runtime-configured key
+  const vaultKey = await getServiceCredential('brave_search');
+  if (vaultKey) return vaultKey;
+
+  // Env-var fallback
+  const envKey = process.env.BRAVE_SEARCH_API_KEY;
+  if (!envKey) {
+    throw new Error('Brave Search API key is not configured. Set it in Settings > CVM Configuration or via BRAVE_SEARCH_API_KEY env var.');
   }
-  return key;
+  return envKey;
 }
 
 /** @internal Exported only for testing */
@@ -124,7 +130,7 @@ export function registerWebSearchTools(): void {
         freshness?: string;
       };
 
-      const apiKey = getBraveApiKey();
+      const apiKey = await getBraveApiKey();
       const clampedCount = Math.max(1, Math.min(20, count));
 
       const params = new URLSearchParams({
