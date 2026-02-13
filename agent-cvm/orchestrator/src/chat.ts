@@ -202,8 +202,9 @@ export async function handleChatMessage(
         usedModel = finalResult.model;
       }
     } catch (err) {
-      console.error('[chat] Inference/tool error:', err);
-      responseContent = 'I apologize, but I encountered an error processing your request. Please try again.';
+      const detail = err instanceof Error ? err.message : String(err);
+      console.error('[chat] Inference/tool error:', detail);
+      responseContent = `Something went wrong: ${detail}`;
       break;
     }
   }
