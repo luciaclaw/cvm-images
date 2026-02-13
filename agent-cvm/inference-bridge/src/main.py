@@ -5,13 +5,14 @@ Proxies requests to the LLM backend (Ollama for dev, Phala GPU TEE for prod).
 The orchestrator calls this service at http://localhost:8000/v1/chat/completions.
 """
 
-from typing import Literal, Union
+from typing import Any, Literal, Union
+import base64
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .inference import chat_completion, stream_chat_completion, list_models
+from .inference import chat_completion, stream_chat_completion, list_models, audio_transcription
 from .config import HOST, PORT, MODEL_NAME
 
 app = FastAPI(title="Lucia Inference Bridge", version="0.1.0")
@@ -20,6 +21,18 @@ app = FastAPI(title="Lucia Inference Bridge", version="0.1.0")
 class Message(BaseModel):
     role: str
     content: str
+    tool_call_id: str | None = None
+
+
+class ToolFunction(BaseModel):
+    name: str
+    description: str
+    parameters: dict[str, Any] = {}
+
+
+class ToolDefinition(BaseModel):
+    type: str = "function"
+    function: ToolFunction
 
 
 class ChatCompletionRequest(BaseModel):
@@ -28,6 +41,8 @@ class ChatCompletionRequest(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 2048
     stream: bool = False
+    tools: list[ToolDefinition] | None = None
+    tool_choice: str | None = None
 
 
 # --- Vision (multimodal) models ---
@@ -75,7 +90,16 @@ async def get_models():
 
 @app.post("/v1/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest):
-    messages = [{"role": m.role, "content": m.content} for m in request.messages]
+    messages = []
+    for m in request.messages:
+        msg: dict[str, Any] = {"role": m.role, "content": m.content}
+        if m.tool_call_id:
+            msg["tool_call_id"] = m.tool_call_id
+        messages.append(msg)
+
+    tools = None
+    if request.tools:
+        tools = [t.model_dump() for t in request.tools]
 
     try:
         if request.stream:
@@ -89,6 +113,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            tools=tools,
+            tool_choice=request.tool_choice,
         )
         return result
     except Exception as e:
@@ -124,6 +150,61 @@ async def create_vision_completion(request: VisionCompletionRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Vision LLM backend error: {str(e)}")
+
+
+@app.post("/v1/audio/transcriptions")
+async def create_audio_transcription(
+    file: UploadFile = File(...),
+    model: str = Form(default="whisper-small-v3-turbo"),
+    language: str | None = Form(default=None),
+    response_format: str = Form(default="json"),
+):
+    """
+    Transcribe audio using Whisper-compatible API.
+
+    Accepts multipart file upload (OpenAI Whisper API format).
+    Proxies to the LLM backend's audio transcription endpoint.
+    """
+    try:
+        audio_data = await file.read()
+        result = await audio_transcription(
+            audio_data=audio_data,
+            filename=file.filename or "audio.ogg",
+            model=model,
+            language=language,
+            response_format=response_format,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Transcription error: {str(e)}")
+
+
+class Base64TranscriptionRequest(BaseModel):
+    """Accept audio as base64-encoded data (convenient for orchestrator)."""
+    audio_data: str  # base64-encoded audio
+    filename: str = "audio.ogg"
+    model: str | None = None
+    language: str | None = None
+
+
+@app.post("/v1/audio/transcriptions/base64")
+async def create_audio_transcription_base64(request: Base64TranscriptionRequest):
+    """
+    Transcribe base64-encoded audio.
+
+    Convenience endpoint for the orchestrator — avoids multipart form encoding.
+    """
+    try:
+        audio_bytes = base64.b64decode(request.audio_data)
+        result = await audio_transcription(
+            audio_data=audio_bytes,
+            filename=request.filename,
+            model=request.model,
+            language=request.language,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Transcription error: {str(e)}")
 
 
 if __name__ == "__main__":

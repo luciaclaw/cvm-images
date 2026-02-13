@@ -15,8 +15,13 @@ import { registerWebSearchTools } from './tools/web-search.js';
 import { registerBrowserTools } from './tools/browser.js';
 import { registerGithubTools } from './tools/github.js';
 import { registerDiscordTools } from './tools/discord.js';
+import { registerWhatsappTools } from './tools/whatsapp.js';
+import { registerVoiceTools } from './tools/voice.js';
 import { registerMemoryTools } from './tools/memory.js';
+import { registerMediaTools } from './tools/media.js';
 import { registerWorkflowTools } from './tools/workflow.js';
+import { registerCronTools } from './tools/cron.js';
+import { registerWebhookTools } from './tools/webhook.js';
 import { recoverRunningExecutions } from './workflow-engine.js';
 
 // Register all tools
@@ -29,8 +34,13 @@ registerWebSearchTools();
 registerBrowserTools();
 registerGithubTools();
 registerDiscordTools();
+registerWhatsappTools();
+registerVoiceTools();
 registerMemoryTools();
+registerMediaTools();
 registerWorkflowTools();
+registerCronTools();
+registerWebhookTools();
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 

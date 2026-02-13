@@ -23,7 +23,24 @@ export async function handleScheduleCreate(
   payload: ScheduleCreatePayload
 ): Promise<MessageEnvelope> {
   try {
-    await createSchedule(payload.name, payload.cronExpression, payload.timezone, payload.prompt);
+    await createSchedule(
+      payload.name,
+      payload.cronExpression ?? null,
+      payload.timezone,
+      payload.prompt,
+      {
+        scheduleType: payload.scheduleType,
+        executionMode: payload.executionMode,
+        delivery: payload.delivery,
+        model: payload.model,
+        atTime: payload.atTime,
+        atDuration: payload.atDuration,
+        intervalMs: payload.intervalMs,
+        deleteAfterRun: payload.deleteAfterRun,
+        maxRetries: payload.maxRetries,
+        retryBackoffMs: payload.retryBackoffMs,
+      }
+    );
     const schedules = await listSchedules();
     return {
       id: crypto.randomUUID(),

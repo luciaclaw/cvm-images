@@ -12,6 +12,9 @@ from typing import AsyncIterator
 
 from .config import LLM_BACKEND_URL, LLM_API_KEY, MODEL_NAME
 
+# Default STT model — Whisper Small V3 Turbo for low-latency on CPU TEE
+STT_MODEL = "whisper-small-v3-turbo"
+
 
 def _headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
@@ -39,6 +42,8 @@ async def chat_completion(
     temperature: float = 0.7,
     max_tokens: int = 2048,
     stream: bool = False,
+    tools: list[dict] | None = None,
+    tool_choice: str | None = None,
 ) -> dict:
     """Call the LLM backend with an OpenAI-compatible request."""
     payload = {
@@ -49,11 +54,54 @@ async def chat_completion(
         "stream": stream,
     }
 
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = tool_choice or "auto"
+
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             f"{LLM_BACKEND_URL}/chat/completions",
             json=payload,
             headers=_headers(),
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def audio_transcription(
+    audio_data: bytes,
+    filename: str = "audio.ogg",
+    model: str | None = None,
+    language: str | None = None,
+    response_format: str = "json",
+) -> dict:
+    """
+    Transcribe audio using the OpenAI-compatible audio transcription endpoint.
+
+    Proxies to the backend's /audio/transcriptions endpoint.
+    Falls back to local Whisper if the backend doesn't support audio.
+    """
+    use_model = model or STT_MODEL
+
+    headers: dict[str, str] = {}
+    if LLM_API_KEY:
+        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
+
+    # Build multipart form data (OpenAI Whisper API format)
+    files = {"file": (filename, audio_data, "application/octet-stream")}
+    data: dict[str, str] = {
+        "model": use_model,
+        "response_format": response_format,
+    }
+    if language:
+        data["language"] = language
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(
+            f"{LLM_BACKEND_URL}/audio/transcriptions",
+            files=files,
+            data=data,
+            headers=headers,
         )
         response.raise_for_status()
         return response.json()

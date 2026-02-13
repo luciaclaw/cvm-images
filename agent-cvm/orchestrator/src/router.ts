@@ -151,6 +151,7 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
 
 /** Static metadata for TEE-attested models — always available as fallback */
 const TEE_MODELS = [
+  { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'openai', contextLength: 131072, inputPrice: 0.15, outputPrice: 0.60 },
   { id: 'moonshotai/kimi-k2.5', name: 'Kimi K2.5', provider: 'moonshotai', contextLength: 131072, inputPrice: 0.20, outputPrice: 0.60 },
   { id: 'phala/uncensored-24b', name: 'Uncensored 24B', provider: 'phala', contextLength: 32768, inputPrice: 0.10, outputPrice: 0.30 },
   { id: 'z-ai/glm-5', name: 'GLM-5', provider: 'z-ai', contextLength: 131072, inputPrice: 0.50, outputPrice: 1.50 },

@@ -1,37 +1,47 @@
 # Agent CVM Docker Compose — for Phala Cloud deployment.
 # Both orchestrator and inference bridge run in the same CVM.
+#
+# Usage:
+#   Local build:  docker compose build && docker compose up
+#   Phala deploy: phala deploy --compose docker-compose.yml -e .env.production
 
 services:
   lucia-agent:
-    build:
-      context: ../..
-      dockerfile: cvm-images/agent-cvm/Dockerfile
+    image: ghcr.io/luciaclaw/lucia-agent:v0.3.0
     ports:
       - "8080:8080"
       - "8000:8000"
     volumes:
       - lucia-data:/data
     environment:
+      # Server
       - PORT=8080
       - INFERENCE_URL=http://localhost:8000
       - INFERENCE_PORT=8000
+      - DATA_DIR=/data
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://luciaclaw.com}
+      # LLM Backend (Phala Confidential AI API)
       - LLM_BACKEND_URL=${LLM_BACKEND_URL:-https://api.redpill.ai/v1}
       - LLM_API_KEY=${LLM_API_KEY:-}
-      - MODEL_NAME=${MODEL_NAME:-deepseek/deepseek-chat-v3-0324}
+      - MODEL_NAME=${MODEL_NAME:-z-ai/glm-5}
+      # Secrets vault (leave empty for ephemeral dev key)
       - VAULT_MASTER_KEY=${VAULT_MASTER_KEY:-}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173}
-      - DATA_DIR=/data
+      # OAuth credentials
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - SLACK_CLIENT_ID=${SLACK_CLIENT_ID:-}
       - SLACK_CLIENT_SECRET=${SLACK_CLIENT_SECRET:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-}
+      # Push notifications
       - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
       - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@luciaclaw.com}
-      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-http://localhost:8080/oauth/callback}
+      # Web search
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY:-}
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 3

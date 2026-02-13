@@ -60,7 +60,7 @@ interface ModelsResponse {
 }
 
 /** Current model selection (per-session, can be changed by user) */
-let currentModel = process.env.MODEL_NAME || 'moonshotai/kimi-k2.5';
+let currentModel = process.env.MODEL_NAME || 'z-ai/glm-5';
 
 export function getCurrentModel(): string {
   return currentModel;
@@ -142,6 +142,43 @@ export async function callVisionInference(
   return {
     content: choice?.message?.content || '',
     model: data.model || VISION_MODEL,
+  };
+}
+
+// --- Audio transcription (STT) ---
+
+export interface TranscriptionResult {
+  text: string;
+  language?: string;
+  duration?: number;
+}
+
+export async function callTranscription(
+  audioData: string, // base64-encoded audio
+  filename?: string,
+  model?: string,
+  language?: string,
+): Promise<TranscriptionResult> {
+  const response = await fetch(`${INFERENCE_URL}/v1/audio/transcriptions/base64`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      audio_data: audioData,
+      filename: filename || 'audio.ogg',
+      model: model || undefined,
+      language: language || undefined,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Transcription returned ${response.status}: ${await response.text()}`);
+  }
+
+  const data = await response.json() as any;
+  return {
+    text: data.text || '',
+    language: data.language,
+    duration: data.duration,
   };
 }
 

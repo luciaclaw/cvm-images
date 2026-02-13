@@ -20,6 +20,7 @@ import { executeTool } from './tool-executor.js';
 import { callInference } from './inference.js';
 import { getActiveSendFn } from './chat.js';
 import { sendPushNotification } from './push.js';
+import { getAllTools, getToolsForInference } from './tool-registry.js';
 
 // ─── DAG Validation ────────────────────────────────────────────────
 
@@ -583,6 +584,8 @@ async function runStep(
       } else if (step.type === 'delay') {
         await new Promise((r) => setTimeout(r, step.durationMs));
         output = { delayed: step.durationMs };
+      } else if (step.type === 'agent_turn') {
+        output = await runAgentTurn(step, context);
       }
 
       // Success — persist
@@ -613,6 +616,89 @@ async function runStep(
   }
 
   return { status: 'failed', error: 'Exhausted retries' };
+}
+
+// ─── Sub-Agent Turn ─────────────────────────────────────────────
+
+/**
+ * Match a tool name against a pattern.
+ * Supports exact match and glob-style prefix (e.g. 'gmail.*' matches 'gmail.send').
+ */
+function matchToolPattern(name: string, pattern: string): boolean {
+  if (pattern === '*') return true;
+  if (pattern.endsWith('.*')) {
+    return name.startsWith(pattern.slice(0, -1)); // 'gmail.' prefix
+  }
+  return name === pattern;
+}
+
+/**
+ * Run a sub-agent turn: multi-turn LLM loop with tool calls.
+ *
+ * The sub-agent gets its own message context (no shared conversation history),
+ * a goal prompt, optionally filtered tools, and runs until the LLM stops
+ * calling tools or maxTurns is reached.
+ */
+async function runAgentTurn(
+  step: Extract<WorkflowStep, { type: 'agent_turn' }>,
+  context: ExecutionContext,
+): Promise<{ response: string; toolCallsMade: number; turns: number }> {
+  const resolvedPrompt = resolveTemplate(step.prompt, context) as string;
+  const maxTurns = step.maxTurns || 5;
+
+  // Filter tools based on allowedTools patterns
+  let tools = getToolsForInference();
+  if (step.allowedTools && step.allowedTools.length > 0) {
+    const patterns = step.allowedTools;
+    tools = tools.filter((t) =>
+      patterns.some((p) => matchToolPattern(t.function.name, p))
+    );
+  }
+
+  const hasTools = tools.length > 0;
+  const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string }> = [
+    {
+      role: 'system',
+      content: 'You are Lucia, a sub-agent executing a workflow step. Complete the given task using available tools. Be thorough and concise.',
+    },
+    { role: 'user', content: resolvedPrompt },
+  ];
+
+  let totalToolCalls = 0;
+
+  for (let turn = 0; turn < maxTurns; turn++) {
+    const result = await callInference(messages, step.model, hasTools ? tools : undefined);
+
+    if (!result.toolCalls || result.toolCalls.length === 0) {
+      return { response: result.content, toolCallsMade: totalToolCalls, turns: turn + 1 };
+    }
+
+    // Add assistant message with content (if any)
+    messages.push({ role: 'assistant', content: result.content || '' });
+
+    // Execute each tool call
+    const sendFn = getActiveSendFn() || (() => {});
+    for (const toolCall of result.toolCalls) {
+      totalToolCalls++;
+      const toolResult = await executeTool(
+        { callId: toolCall.id, name: toolCall.name, arguments: toolCall.arguments },
+        sendFn,
+      );
+      messages.push({
+        role: 'tool',
+        content: JSON.stringify(toolResult.success ? toolResult.result : { error: toolResult.error }),
+        tool_call_id: toolCall.id,
+      });
+    }
+
+    // On last turn, get final response without tools
+    if (turn === maxTurns - 1) {
+      const finalResult = await callInference(messages, step.model);
+      return { response: finalResult.content, toolCallsMade: totalToolCalls, turns: turn + 1 };
+    }
+  }
+
+  return { response: '', toolCallsMade: totalToolCalls, turns: maxTurns };
 }
 
 // ─── Status Push ───────────────────────────────────────────────────

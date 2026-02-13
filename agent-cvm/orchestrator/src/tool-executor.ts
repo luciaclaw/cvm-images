@@ -112,6 +112,12 @@ function buildConfirmationDescription(
       return `Trigger workflow "${args.workflow_id || '?'}" on ${args.owner || '?'}/${args.repo || '?'} (ref: ${args.ref || '?'})`;
     case 'discord.send':
       return `Send Discord message to channel ${args.channel_id || 'unknown'}`;
+    case 'whatsapp.send':
+      return `Send WhatsApp message to ${args.to || 'unknown'}`;
+    case 'whatsapp.send_template':
+      return `Send WhatsApp template "${args.template_name || 'unknown'}" to ${args.to || 'unknown'}`;
+    case 'whatsapp.send_media':
+      return `Send WhatsApp ${args.media_type || 'media'} to ${args.to || 'unknown'}`;
     case 'workflow.execute':
       return `Execute workflow "${args.workflowId || 'unknown'}" (multi-step automation)`;
     default:

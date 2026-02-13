@@ -90,6 +90,9 @@ export function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_schedules_next_run
       ON schedules(status, next_run_at);
 
+    -- Schedule columns added for cron v2 (one-shot, delivery, retry, isolation, model)
+    -- Uses ALTER TABLE for migration from existing databases
+
     CREATE TABLE IF NOT EXISTS memories (
       id TEXT PRIMARY KEY,
       content_enc TEXT NOT NULL,
@@ -151,6 +154,17 @@ export function getDb(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_workflow_step_executions_exec
       ON workflow_step_executions(execution_id);
+
+    CREATE TABLE IF NOT EXISTS session_mappings (
+      channel TEXT NOT NULL,
+      peer_id TEXT NOT NULL,
+      session_type TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      label_enc TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_message_at INTEGER NOT NULL,
+      PRIMARY KEY (channel, peer_id)
+    );
   `);
 
   // Migrate old single-PK credentials table to compound PK (service, account)
@@ -176,6 +190,26 @@ export function getDb(): Database.Database {
       DROP TABLE credentials_old;
     `);
     console.log('[storage] Migrated credentials table to compound PK (service, account)');
+  }
+
+  // Migrate schedules table for cron v2 features
+  const scheduleInfo = db.pragma('table_info(schedules)') as any[];
+  const scheduleColumns = new Set(scheduleInfo.map((col: any) => col.name));
+  if (!scheduleColumns.has('schedule_type')) {
+    db.exec(`
+      ALTER TABLE schedules ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'cron';
+      ALTER TABLE schedules ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'main';
+      ALTER TABLE schedules ADD COLUMN delivery_enc TEXT;
+      ALTER TABLE schedules ADD COLUMN model TEXT;
+      ALTER TABLE schedules ADD COLUMN at_time INTEGER;
+      ALTER TABLE schedules ADD COLUMN interval_ms INTEGER;
+      ALTER TABLE schedules ADD COLUMN delete_after_run INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE schedules ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE schedules ADD COLUMN retry_backoff_ms INTEGER NOT NULL DEFAULT 30000;
+      ALTER TABLE schedules ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE schedules ADD COLUMN last_error TEXT;
+    `);
+    console.log('[storage] Migrated schedules table for cron v2 (one-shot, delivery, retry, isolation, model)');
   }
 
   return db;

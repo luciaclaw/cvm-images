@@ -10,10 +10,12 @@ import { handleOAuthCallback } from './oauth.js';
 import { getActiveSendFn } from './chat.js';
 import { getDb } from './storage.js';
 import { startScheduler } from './scheduler.js';
+import { createWebhookRouter, initWebhookTable } from './webhook.js';
 
 export function startServer(port: number): void {
   // Initialize SQLite database on startup
   getDb();
+  initWebhookTable();
   console.log('[storage] Database initialized');
 
   // Start the cron scheduler
@@ -57,6 +59,9 @@ export function startServer(port: number): void {
       sendFn(result);
     }
   });
+
+  // Inbound webhook receiver
+  app.use('/webhooks', createWebhookRouter());
 
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
