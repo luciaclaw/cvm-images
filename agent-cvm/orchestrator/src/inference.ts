@@ -27,6 +27,7 @@ interface ChatCompletionResponse {
     message: {
       role: string;
       content: string | null;
+      reasoning_content?: string | null;
       tool_calls?: ToolCallResponse[];
     };
     finish_reason: string;
@@ -141,9 +142,10 @@ export async function callVisionInference(
 
   const data: ChatCompletionResponse = await response.json();
   const choice = data.choices[0];
+  const visionContent = choice?.message?.content || choice?.message?.reasoning_content || '';
 
   return {
-    content: choice?.message?.content || '',
+    content: visionContent,
     model: data.model || VISION_MODEL,
   };
 }
@@ -221,8 +223,11 @@ export async function callInference(
   const choice = data.choices[0];
   const message = choice?.message;
 
+  // Some models (e.g. GLM-5) put text in reasoning_content instead of content
+  const textContent = message?.content || message?.reasoning_content || '';
+
   const result: InferenceResult = {
-    content: message?.content || '',
+    content: textContent,
     model: data.model || useModel,
     finishReason: choice?.finish_reason || 'stop',
   };
