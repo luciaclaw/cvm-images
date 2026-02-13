@@ -19,7 +19,7 @@ services:
       - INFERENCE_URL=http://localhost:8000
       - INFERENCE_PORT=8000
       - DATA_DIR=/data
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://luciaclaw.com}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://luciaclaw.com,https://luciaclaw.vercel.app}
       # LLM Backend (Phala Confidential AI API)
       - LLM_BACKEND_URL=${LLM_BACKEND_URL:-https://api.redpill.ai/v1}
       - LLM_API_KEY=${LLM_API_KEY:-}

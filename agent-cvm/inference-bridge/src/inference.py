@@ -7,10 +7,15 @@ All models on Phala run inside GPU TEEs with hardware attestation.
 For local dev: Ollama, vLLM, or any local model server.
 """
 
+import asyncio
+import logging
+
 import httpx
 from typing import AsyncIterator
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 # Default STT model — Whisper Small V3 Turbo for low-latency on CPU TEE
 STT_MODEL = "whisper-small-v3-turbo"
@@ -58,14 +63,32 @@ async def chat_completion(
         payload["tools"] = tools
         payload["tool_choice"] = tool_choice or "auto"
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            f"{config.LLM_BACKEND_URL}/chat/completions",
-            json=payload,
-            headers=_headers(),
-        )
-        response.raise_for_status()
-        return response.json()
+    # Retry on 400 — some aggregator backends intermittently reject tool-calling
+    # payloads when routed to an instance that doesn't support them.
+    max_retries = 2
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{config.LLM_BACKEND_URL}/chat/completions",
+                json=payload,
+                headers=_headers(),
+            )
+            if response.status_code == 400 and attempt < max_retries:
+                body = response.text
+                logger.warning(
+                    "LLM backend returned 400 (attempt %d/%d): %s",
+                    attempt + 1, max_retries + 1, body[:200],
+                )
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+            response.raise_for_status()
+            return response.json()
+
+    # Should not reach here, but just in case
+    raise last_exc or httpx.HTTPStatusError(
+        "Max retries exceeded", request=response.request, response=response  # type: ignore[possibly-undefined]
+    )
 
 
 async def audio_transcription(
