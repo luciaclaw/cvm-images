@@ -97,7 +97,18 @@ export async function handleHandshake(ws: WebSocket): Promise<void> {
           return;
         }
 
-        const response = await routeMessage(inner);
+        let response: MessageEnvelope | null;
+        try {
+          response = await routeMessage(inner);
+        } catch (routeErr) {
+          console.error('[orchestrator] Route error:', routeErr);
+          response = {
+            id: crypto.randomUUID(),
+            type: 'error',
+            timestamp: Date.now(),
+            payload: { code: 1500, message: routeErr instanceof Error ? routeErr.message : 'Internal error' },
+          };
+        }
         if (response) {
           await sendEncrypted(ws, sessionKey, response);
         }
