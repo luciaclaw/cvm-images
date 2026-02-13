@@ -7,7 +7,7 @@
 
 services:
   lucia-agent:
-    image: ghcr.io/luciaclaw/lucia-agent:v0.4.3
+    image: ghcr.io/luciaclaw/lucia-agent:v0.4.4
     ports:
       - "8080:8080"
       - "8000:8000"
