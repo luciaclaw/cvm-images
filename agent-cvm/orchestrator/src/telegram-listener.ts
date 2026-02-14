@@ -12,7 +12,10 @@ import express from 'express';
 import crypto from 'crypto';
 import { getServiceCredential } from './vault.js';
 import { handleChatMessage, getActiveSendFn } from './chat.js';
+import { handleChatCommand } from './chat-commands.js';
 import { resolveSession, telegramSessionType } from './session-router.js';
+import { downloadTelegramFile } from './tools/voice.js';
+import { callTranscription } from './inference.js';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
@@ -39,22 +42,73 @@ export function createTelegramRouter(): Router {
 
     const update = req.body;
 
-    // Only handle text messages for MVP
     const message = update?.message;
-    if (!message || !message.text) {
-      if (message) {
-        console.log(`[telegram] Ignoring non-text message (type: ${message.sticker ? 'sticker' : message.photo ? 'photo' : message.voice ? 'voice' : 'other'})`);
-      }
-      return;
-    }
+    if (!message) return;
 
     const chatId = String(message.chat.id);
     const chatType = message.chat.type as string; // 'private', 'group', 'supergroup', 'channel'
-    const text = message.text as string;
     const senderName = message.from?.first_name || 'Unknown';
     const chatTitle = message.chat.title || `${senderName} (DM)`;
 
+    // Resolve message content: text or voice transcription
+    let text: string | undefined;
+
+    if (message.text) {
+      text = message.text as string;
+    } else if (message.voice || message.audio || message.video_note) {
+      // Voice message, audio file, or video note — transcribe via STT
+      const fileId = (message.voice?.file_id || message.audio?.file_id || message.video_note?.file_id) as string;
+      try {
+        console.log(`[telegram] Transcribing voice message from ${senderName} (file_id: ${fileId})`);
+        const { base64, filename } = await downloadTelegramFile(fileId);
+        const result = await callTranscription(base64, filename);
+        text = result.text;
+        if (!text?.trim()) {
+          console.log('[telegram] Transcription returned empty text — ignoring');
+          return;
+        }
+        console.log(`[telegram] Transcribed ${result.duration ?? '?'}s voice message (${result.language ?? 'auto'}): "${text.slice(0, 80)}..."`);
+      } catch (err) {
+        console.error('[telegram] Voice transcription failed:', err instanceof Error ? err.message : err);
+        // Notify user of the failure
+        const token = await getServiceCredential('telegram');
+        if (token) {
+          await fetch(`${TELEGRAM_API}/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: 'Sorry, I couldn\'t process that voice message. Please try again or send it as text.',
+              reply_to_message_id: message.message_id,
+            }),
+          });
+        }
+        return;
+      }
+    } else {
+      console.log(`[telegram] Ignoring unsupported message type (${message.sticker ? 'sticker' : message.photo ? 'photo' : 'other'})`);
+      return;
+    }
+
     try {
+      // Intercept slash commands — respond directly, skip chat pipeline
+      const commandResult = await handleChatCommand(text);
+      if (commandResult) {
+        const token = await getServiceCredential('telegram');
+        if (token) {
+          await fetch(`${TELEGRAM_API}/bot${token}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: commandResult.response,
+            }),
+          });
+        }
+        console.log(`[telegram] Handled command "${text.trim()}" from ${senderName}`);
+        return;
+      }
+
       // Route to correct session
       const sessionType = telegramSessionType(chatType);
       const conversationId = await resolveSession('telegram', chatId, sessionType, chatTitle);

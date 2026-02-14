@@ -16,7 +16,9 @@ import express from 'express';
 import crypto from 'crypto';
 import { getDb, encrypt, decrypt } from './storage.js';
 import { handleChatMessage, getActiveSendFn } from './chat.js';
+import { handleChatCommand } from './chat-commands.js';
 import { resolveSession } from './session-router.js';
+import { getServiceCredential } from './vault.js';
 
 // ─── Webhook Registration Storage ────────────────────────────────
 
@@ -115,6 +117,8 @@ function verifyGenericSignature(payload: string, signature: string, secret: stri
 
 // ─── Webhook Processing ──────────────────────────────────────────
 
+const GRAPH_API = 'https://graph.facebook.com/v21.0';
+
 async function processWebhookEvent(
   webhook: WebhookRow,
   source: string,
@@ -125,6 +129,12 @@ async function processWebhookEvent(
   getDb().prepare(
     'UPDATE webhooks SET trigger_count = trigger_count + 1, last_triggered_at = ? WHERE id = ?'
   ).run(Date.now(), webhook.id);
+
+  // WhatsApp: intercept slash commands from incoming messages
+  if (source === 'whatsapp') {
+    const handled = await handleWhatsAppCommands(payload);
+    if (handled) return;
+  }
 
   // Format as a chat message for the agent
   const summary = formatWebhookSummary(source, eventType, payload);
@@ -147,6 +157,56 @@ async function processWebhookEvent(
   );
 
   console.log(`[webhook] Processed ${source}/${eventType} for "${webhook.name}"`);
+}
+
+/**
+ * Check WhatsApp webhook payload for slash commands. If any message is a
+ * command, reply directly via WhatsApp Cloud API and return true.
+ * Returns false if no commands were found (normal processing should continue).
+ */
+async function handleWhatsAppCommands(payload: Record<string, unknown>): Promise<boolean> {
+  const entries = (payload.entry as any[]) || [];
+  let anyHandled = false;
+
+  for (const entry of entries) {
+    const changes = entry.changes || [];
+    for (const change of changes) {
+      if (change.field !== 'messages') continue;
+      const phoneNumberId = change.value?.metadata?.phone_number_id as string | undefined;
+      const messages = change.value?.messages || [];
+
+      for (const msg of messages) {
+        const body = msg.text?.body as string | undefined;
+        if (!body) continue;
+
+        const commandResult = await handleChatCommand(body);
+        if (!commandResult) continue;
+
+        // Reply via WhatsApp Cloud API
+        const replyPhoneId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+        const token = await getServiceCredential('whatsapp');
+        if (token && replyPhoneId) {
+          await fetch(`${GRAPH_API}/${replyPhoneId}/messages`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              messaging_product: 'whatsapp',
+              to: msg.from,
+              type: 'text',
+              text: { body: commandResult.response },
+            }),
+          });
+          console.log(`[webhook] WhatsApp command "${body.trim()}" from ${msg.from}`);
+        }
+        anyHandled = true;
+      }
+    }
+  }
+
+  return anyHandled;
 }
 
 function formatWebhookSummary(

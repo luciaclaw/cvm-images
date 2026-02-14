@@ -240,6 +240,7 @@ const EXCLUDED_PREF_KEYS = new Set([
   'agent_avatar',
   'usage_limit_daily',
   'usage_limit_monthly',
+  'chat_model_role',
 ]);
 
 export async function getRelevantMemories(userMessage: string, limit = 5): Promise<string> {

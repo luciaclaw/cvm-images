@@ -17,6 +17,9 @@ import { getRelevantMemories, extractAndStoreMemories, getPreference } from './p
 import { getServiceCredential } from './vault.js';
 import { detectAutoRoute, runSubAgent } from './sub-agent.js';
 import { checkLimits, trackUsage } from './token-tracker.js';
+import { handleChatCommand } from './chat-commands.js';
+import type { ModelRole } from './model-registry.js';
+import { getModelForRole, getModelConfig } from './model-registry.js';
 
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -44,7 +47,19 @@ export async function handleChatMessage(
   messageId: string,
   payload: ChatMessagePayload
 ): Promise<MessageEnvelope> {
-  const { content, model, conversationId, attachments } = payload;
+  const { content, model: payloadModel, conversationId, attachments } = payload;
+
+  // Intercept slash commands — respond immediately, skip history & inference
+  const commandResult = await handleChatCommand(content);
+  if (commandResult) {
+    const cmdResponseId = crypto.randomUUID();
+    return {
+      id: cmdResponseId,
+      type: 'chat.response',
+      timestamp: Date.now(),
+      payload: { content: commandResult.response },
+    };
+  }
 
   // Switch to specified conversation or ensure one exists
   if (conversationId) {
@@ -172,8 +187,16 @@ export async function handleChatMessage(
     };
   }
 
+  // Resolve model: explicit payload override > stored preference > default
+  let model = payloadModel;
+  const storedRole = (await getPreference('chat_model_role')) as ModelRole | null;
+  if (!model && storedRole) {
+    model = getModelForRole(storedRole);
+  }
+
   // Auto-route to sub-agent if content matches routing patterns
-  const autoRole = detectAutoRoute(content);
+  // Skip auto-routing when user has explicitly set a model preference
+  const autoRole = !storedRole ? detectAutoRoute(content) : null;
   if (autoRole) {
     const subResult = await runSubAgent(autoRole, augmentedContent, activeConvId);
     const autoResponseContent = `*[${autoRole} model: ${subResult.model}]*\n\n${subResult.response}`;
@@ -193,9 +216,10 @@ export async function handleChatMessage(
     };
   }
 
-  // Get available tools for inference
+  // Get available tools for inference (disable if model doesn't support them)
   const tools = getToolsForInference();
-  const hasTools = tools.length > 0;
+  const modelSupportsTools = storedRole ? getModelConfig(storedRole).supportsTools : true;
+  const hasTools = tools.length > 0 && modelSupportsTools;
 
   // Tool calling loop (max iterations to prevent infinite loops)
   let responseContent = '';
