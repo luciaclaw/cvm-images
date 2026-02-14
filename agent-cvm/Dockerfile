@@ -20,7 +20,7 @@ RUN npm install
 COPY cvm-images/agent-cvm/orchestrator/src ./src
 RUN npm run build
 COPY cvm-images/agent-cvm/orchestrator/tests ./tests
-RUN npm test
+RUN DATA_DIR=/tmp/test-data npm test
 
 # --- Stage 2: Runtime ---
 FROM node:22-slim AS runtime
