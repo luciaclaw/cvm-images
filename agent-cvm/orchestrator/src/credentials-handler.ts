@@ -78,7 +78,11 @@ async function pushLlmConfigToBridge(): Promise<void> {
  */
 export async function syncLlmConfigOnStartup(): Promise<void> {
   const raw = await getServiceCredential('llm_backend');
-  if (!raw) return; // No vault-stored config — nothing to sync
+  if (!raw) {
+    // Credential missing or undecryptable (e.g. after key rotation)
+    console.warn('[credentials] No LLM backend credential available — user must re-set API key via settings');
+    return;
+  }
 
   const MAX_RETRIES = 5;
   const RETRY_DELAY_MS = 2000;

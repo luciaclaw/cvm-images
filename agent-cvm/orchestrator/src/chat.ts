@@ -14,6 +14,7 @@ import { callInference, callVisionInference } from './inference.js';
 import { getToolsForInference, getAllTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
 import { getRelevantMemories, extractAndStoreMemories, getPreference } from './persistent-memory.js';
+import { getServiceCredential } from './vault.js';
 
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -133,6 +134,23 @@ export async function handleChatMessage(
     ...history.slice(0, -1).map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     { role: 'user' as const, content: augmentedContent },
   ];
+
+  // Check that LLM API key is available before calling inference
+  const llmCred = await getServiceCredential('llm_backend');
+  if (!llmCred) {
+    const noKeyMsg = 'No LLM API key configured. Please set your API key in Settings → Credentials to start chatting.';
+    const responseId = crypto.randomUUID();
+    await addToHistory(
+      { messageId: responseId, role: 'assistant', content: noKeyMsg, timestamp: Date.now() },
+      activeConvId,
+    );
+    return {
+      id: responseId,
+      type: 'chat.response',
+      timestamp: Date.now(),
+      payload: { content: noKeyMsg },
+    };
+  }
 
   // Get available tools for inference
   const tools = getToolsForInference();
