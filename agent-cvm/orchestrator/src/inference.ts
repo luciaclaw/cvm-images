@@ -144,7 +144,7 @@ export async function callVisionInference(
       messages,
       model: VISION_MODEL,
       temperature: 0.3,
-      max_tokens: 2048,
+      max_tokens: 8192,
     }),
     signal: AbortSignal.timeout(120_000),
   });
@@ -215,7 +215,7 @@ export async function callInference(
     messages,
     model: useModel,
     temperature: 0.7,
-    max_tokens: 2048,
+    max_tokens: 8192,
   };
 
   if (tools && tools.length > 0) {

@@ -52,7 +52,7 @@ class ChatCompletionRequest(BaseModel):
     messages: list[Message]
     model: str | None = None
     temperature: float = 0.7
-    max_tokens: int = 2048
+    max_tokens: int = 8192
     stream: bool = False
     tools: list[ToolDefinition] | None = None
     tool_choice: str | None = None
@@ -83,7 +83,7 @@ class VisionCompletionRequest(BaseModel):
     messages: list[VisionMessage]
     model: str | None = None
     temperature: float = 0.3
-    max_tokens: int = 2048
+    max_tokens: int = 8192
 
 
 @app.get("/health")

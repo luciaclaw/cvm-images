@@ -58,7 +58,7 @@ async def chat_completion(
     messages: list[dict],
     model: str | None = None,
     temperature: float = 0.7,
-    max_tokens: int = 2048,
+    max_tokens: int = 8192,
     stream: bool = False,
     tools: list[dict] | None = None,
     tool_choice: str | None = None,
@@ -153,7 +153,7 @@ async def stream_chat_completion(
     messages: list[dict],
     model: str | None = None,
     temperature: float = 0.7,
-    max_tokens: int = 2048,
+    max_tokens: int = 8192,
 ) -> AsyncIterator[str]:
     """Stream chat completion chunks as SSE data lines."""
     payload = {
