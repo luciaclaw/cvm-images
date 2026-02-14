@@ -216,6 +216,31 @@ export async function getAllPreferences(): Promise<Record<string, string>> {
 
 // ── Chat integration ───────────────────────────────────────────────────
 
+/**
+ * Maximum total character length of the memory context injected into the system prompt.
+ * This prevents the system prompt from growing unbounded when the user has many
+ * memories/preferences (which caused 400 errors from upstream LLM providers).
+ */
+const MAX_CONTEXT_LENGTH = 4000;
+
+/** Maximum character length for a single memory or preference value */
+const MAX_ENTRY_LENGTH = 500;
+
+/**
+ * Preference keys that are already loaded individually in chat.ts and should NOT
+ * be duplicated in the memory context. Also includes internal system keys.
+ */
+const EXCLUDED_PREF_KEYS = new Set([
+  'personality_tone',
+  'personality_instructions',
+  'user_timezone',
+  'user_full_name',
+  'user_preferred_name',
+  'agent_name',
+  'usage_limit_daily',
+  'usage_limit_monthly',
+]);
+
 export async function getRelevantMemories(userMessage: string, limit = 5): Promise<string> {
   const parts: string[] = [];
 
@@ -232,7 +257,10 @@ export async function getRelevantMemories(userMessage: string, limit = 5): Promi
       if (memories.length > 0) {
         parts.push('## What you remember about the user:');
         for (const m of memories) {
-          parts.push(`- ${m.content} (${m.category})`);
+          const truncated = m.content.length > MAX_ENTRY_LENGTH
+            ? m.content.slice(0, MAX_ENTRY_LENGTH) + '…'
+            : m.content;
+          parts.push(`- ${truncated} (${m.category})`);
         }
       }
     } catch {
@@ -240,17 +268,28 @@ export async function getRelevantMemories(userMessage: string, limit = 5): Promi
     }
   }
 
-  // Always include preferences
+  // Include preferences (excluding keys already loaded individually in chat.ts)
   const prefs = await getAllPreferences();
-  const prefEntries = Object.entries(prefs);
+  const prefEntries = Object.entries(prefs).filter(([key]) => !EXCLUDED_PREF_KEYS.has(key));
   if (prefEntries.length > 0) {
     parts.push('## User preferences:');
     for (const [key, value] of prefEntries) {
-      parts.push(`- ${key}: ${value}`);
+      const truncated = value.length > MAX_ENTRY_LENGTH
+        ? value.slice(0, MAX_ENTRY_LENGTH) + '…'
+        : value;
+      parts.push(`- ${key}: ${truncated}`);
     }
   }
 
-  return parts.join('\n');
+  let result = parts.join('\n');
+
+  // Hard cap on total memory context length
+  if (result.length > MAX_CONTEXT_LENGTH) {
+    result = result.slice(0, MAX_CONTEXT_LENGTH) + '\n[…memory context truncated]';
+    console.warn(`[memory] Context truncated from ${parts.join('\n').length} to ${MAX_CONTEXT_LENGTH} chars`);
+  }
+
+  return result;
 }
 
 const EXTRACTION_PROMPT = `Extract any memorable facts, preferences, or important information from this conversation exchange that would be useful to remember in future conversations. Return a JSON array of objects with "content" and "category" fields. Categories: fact, preference, event, decision, relationship, general. Return an empty array [] if nothing is worth remembering.

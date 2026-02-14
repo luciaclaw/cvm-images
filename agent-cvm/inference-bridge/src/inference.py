@@ -78,18 +78,7 @@ async def chat_completion(
 
     client = _get_client()
 
-    # Debug: log payload details (use print to bypass log level filtering)
-    import json as _json
-    import hashlib
-    payload_json = _json.dumps(payload, sort_keys=True)
     tool_count = len(payload.get("tools", []))
-    payload_hash = hashlib.md5(payload_json.encode()).hexdigest()
-    msg_summary = [(m.get("role"), len(m.get("content", ""))) for m in messages]
-    print(f"[bridge-debug] model={payload.get('model')} msgs={msg_summary} tools={tool_count} size={len(payload_json)} hash={payload_hash}", flush=True)
-    for i, m in enumerate(messages):
-        content = m.get("content", "")
-        extra_keys = [k for k in m if k not in ("role", "content")]
-        print(f"[bridge-debug]   msg[{i}] role={m.get('role')} len={len(content)} extra_keys={extra_keys} preview={content[:150]}", flush=True)
 
     # Retry on 400 — some aggregator backends intermittently reject tool-calling
     # payloads when routed to an instance that doesn't support them.
