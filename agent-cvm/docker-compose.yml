@@ -24,8 +24,6 @@ services:
       - LLM_BACKEND_URL=${LLM_BACKEND_URL:-https://api.redpill.ai/v1}
       - LLM_API_KEY=${LLM_API_KEY:-}
       - MODEL_NAME=${MODEL_NAME:-openai/gpt-oss-120b}
-      # Anthropic API (for coding sub-agent — Claude Opus, non-TEE)
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       # Secrets vault (leave empty for ephemeral dev key)
       - VAULT_MASTER_KEY=${VAULT_MASTER_KEY:-}
       # OAuth credentials
