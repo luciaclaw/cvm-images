@@ -7,7 +7,7 @@
 
 services:
   lucia-agent:
-    image: ghcr.io/luciaclaw/lucia-agent:v0.4.6
+    image: ghcr.io/luciaclaw/lucia-agent:v0.5.0
     ports:
       - "8080:8080"
       - "8000:8000"
@@ -40,6 +40,8 @@ services:
       - VAPID_SUBJECT=${VAPID_SUBJECT:-mailto:admin@luciaclaw.com}
       # Web search
       - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY:-}
+      # Telegram webhook (set to CVM's public URL for webhook registration)
+      - CVM_PUBLIC_URL=${CVM_PUBLIC_URL:-}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
       interval: 10s
