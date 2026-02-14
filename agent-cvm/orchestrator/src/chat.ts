@@ -129,6 +129,14 @@ export async function handleChatMessage(
     ? `${personalizedPrompt}\n\n${memoryContext}`
     : personalizedPrompt;
 
+  // Diagnostic logging — identify what's contributing to system prompt size
+  console.log(`[prompt-diag] SYSTEM_PROMPT=${SYSTEM_PROMPT.length} personalizedPrompt=${personalizedPrompt.length} memoryContext=${memoryContext.length} systemPrompt=${systemPrompt.length}`);
+  if (personalityTone) console.log(`[prompt-diag]   personalityTone len=${personalityTone.length}`);
+  if (personalityInstructions) console.log(`[prompt-diag]   personalityInstructions len=${personalityInstructions.length}`);
+  if (systemPrompt.length > 5000) {
+    console.warn(`[prompt-diag] WARNING: systemPrompt is ${systemPrompt.length} chars! First 500: "${systemPrompt.slice(0, 500)}" Last 500: "${systemPrompt.slice(-500)}"`);
+  }
+
   // Build prompt from conversation history
   const history = await getHistory(activeConvId);
   const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }> = [
