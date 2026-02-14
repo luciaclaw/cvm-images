@@ -32,7 +32,7 @@ export function registerWorkflowTools(): void {
               name: { type: 'string', description: 'Step name' },
               type: { type: 'string', enum: ['tool_call', 'llm_inference', 'delay', 'agent_turn'] },
               toolName: { type: 'string', description: 'Tool to call (for tool_call type)' },
-              arguments: { type: 'object', description: 'Tool arguments (for tool_call type). Supports {{steps.stepId.output.field}} templates.' },
+              arguments: { type: 'object', additionalProperties: true, description: 'Tool arguments (for tool_call type). Supports {{steps.stepId.output.field}} templates.' },
               prompt: { type: 'string', description: 'LLM prompt (for llm_inference type). Supports templates.' },
               model: { type: 'string', description: 'Optional model override (for llm_inference type)' },
               durationMs: { type: 'number', description: 'Delay in ms (for delay type)' },
@@ -104,6 +104,7 @@ export function registerWorkflowTools(): void {
         workflowId: { type: 'string', description: 'ID of the workflow to execute' },
         variables: {
           type: 'object',
+          additionalProperties: true,
           description: 'Runtime variables injected into step templates via {{variables.key}}',
         },
       },

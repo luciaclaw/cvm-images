@@ -131,7 +131,7 @@ export async function handleChatMessage(
 
   // Build prompt from conversation history
   const history = await getHistory(activeConvId);
-  const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string }> = [
+  const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }> = [
     { role: 'system', content: systemPrompt },
     ...history.slice(0, -1).map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     { role: 'user' as const, content: augmentedContent },
@@ -222,6 +222,14 @@ export async function handleChatMessage(
       messages.push({
         role: 'assistant',
         content: result.content || '',
+        tool_calls: result.toolCalls?.map(tc => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: {
+            name: tc.name,
+            arguments: JSON.stringify(tc.arguments),
+          },
+        })),
       });
 
       for (const toolCall of result.toolCalls) {

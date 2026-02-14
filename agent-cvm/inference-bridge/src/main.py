@@ -19,10 +19,22 @@ from .config import HOST, PORT
 app = FastAPI(title="Lucia Inference Bridge", version="0.1.0")
 
 
+class ToolCallFunction(BaseModel):
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    id: str
+    type: str = "function"
+    function: ToolCallFunction
+
+
 class Message(BaseModel):
     role: str
     content: str
     tool_call_id: str | None = None
+    tool_calls: list[ToolCall] | None = None
 
 
 class ToolFunction(BaseModel):
@@ -128,6 +140,8 @@ async def create_chat_completion(request: ChatCompletionRequest):
         msg: dict[str, Any] = {"role": m.role, "content": m.content}
         if m.tool_call_id:
             msg["tool_call_id"] = m.tool_call_id
+        if m.tool_calls:
+            msg["tool_calls"] = [tc.model_dump() for tc in m.tool_calls]
         messages.append(msg)
 
     tools = None
