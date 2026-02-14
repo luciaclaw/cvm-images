@@ -11,6 +11,7 @@ import { getActiveSendFn } from './chat.js';
 import { getDb } from './storage.js';
 import { startScheduler } from './scheduler.js';
 import { createWebhookRouter, initWebhookTable } from './webhook.js';
+import { createTelegramRouter } from './telegram-listener.js';
 
 export function startServer(port: number): void {
   // Initialize SQLite database on startup
@@ -59,6 +60,9 @@ export function startServer(port: number): void {
       sendFn(result);
     }
   });
+
+  // Telegram Bot webhook listener
+  app.use('/telegram', createTelegramRouter());
 
   // Inbound webhook receiver
   app.use('/webhooks', createWebhookRouter());

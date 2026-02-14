@@ -18,6 +18,7 @@ import {
   listServiceCredentials,
 } from './vault.js';
 import { setCurrentModel } from './inference.js';
+import { setupTelegramWebhook, removeTelegramWebhook } from './telegram-listener.js';
 
 const BRIDGE_CONFIG_URL = 'http://localhost:8000/internal/config';
 
@@ -115,6 +116,13 @@ export async function handleCredentialSet(
     await pushLlmConfigToBridge();
   }
 
+  // Side effect: register Telegram webhook when bot token is set
+  if (service === 'telegram') {
+    setupTelegramWebhook().catch((err) =>
+      console.error('[credentials] Telegram webhook setup failed:', err)
+    );
+  }
+
   // Return the full credential list so the PWA stays in sync
   return {
     id: crypto.randomUUID(),
@@ -137,6 +145,13 @@ export async function handleCredentialDelete(
     console.log(`[credentials] Deleted credential for ${service}:${acct}`);
   } else {
     console.warn(`[credentials] No credential found for ${service}:${acct}`);
+  }
+
+  // Side effect: remove Telegram webhook when bot token is deleted
+  if (service === 'telegram' && deleted) {
+    removeTelegramWebhook().catch((err) =>
+      console.error('[credentials] Telegram webhook removal failed:', err)
+    );
   }
 
   return {

@@ -24,6 +24,7 @@ import { registerCronTools } from './tools/cron.js';
 import { registerWebhookTools } from './tools/webhook.js';
 import { recoverRunningExecutions } from './workflow-engine.js';
 import { syncLlmConfigOnStartup } from './credentials-handler.js';
+import { initTelegramListener } from './telegram-listener.js';
 
 // Register all tools
 registerGmailTools();
@@ -52,3 +53,6 @@ syncLlmConfigOnStartup().catch((err) => console.error('[credentials] Startup LLM
 
 // Recover any workflows that were running when the CVM restarted
 recoverRunningExecutions().catch((err) => console.error('[workflow] Recovery failed:', err));
+
+// Initialize Telegram webhook listener if bot token is already configured
+initTelegramListener().catch((err) => console.error('[telegram] Listener init failed:', err));
