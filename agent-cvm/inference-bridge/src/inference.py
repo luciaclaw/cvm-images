@@ -78,6 +78,20 @@ async def chat_completion(
 
     client = _get_client()
 
+    # Debug: log payload size and tool count on tool-bearing requests
+    import json as _json
+    payload_json = _json.dumps(payload)
+    tool_count = len(payload.get("tools", []))
+    msg_roles = [m.get("role", "?") for m in messages]
+    logger.info(
+        "Sending request: model=%s, messages=%d (roles=%s), tools=%d, payload_size=%d bytes",
+        payload.get("model"), len(messages), msg_roles, tool_count, len(payload_json),
+    )
+    # Log message content lengths for debugging
+    for i, m in enumerate(messages):
+        content = m.get("content", "")
+        logger.info("  msg[%d] role=%s len=%d preview=%.100s", i, m.get("role"), len(content), content)
+
     # Retry on 400 — some aggregator backends intermittently reject tool-calling
     # payloads when routed to an instance that doesn't support them.
     max_retries = 2
@@ -91,8 +105,12 @@ async def chat_completion(
             body = response.text
             logger.warning(
                 "LLM backend returned 400 (attempt %d/%d): %s",
-                attempt + 1, max_retries + 1, body[:200],
+                attempt + 1, max_retries + 1, body[:500],
             )
+            if tool_count > 0:
+                # Log tool names for debugging
+                tool_names = [t.get("function", {}).get("name", "?") for t in payload.get("tools", [])]
+                logger.warning("Tools in request: %s", tool_names)
             await asyncio.sleep(0.5 * (attempt + 1))
             continue
         response.raise_for_status()
