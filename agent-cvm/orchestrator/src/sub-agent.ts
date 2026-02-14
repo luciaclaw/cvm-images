@@ -22,6 +22,8 @@ export interface SubAgentResult {
   turns: number;
   promptTokens: number;
   completionTokens: number;
+  /** Raw reasoning steps from reasoning models */
+  reasoningContent?: string;
 }
 
 /** Role-specific system prompts */
@@ -133,6 +135,7 @@ export async function runSubAgent(
         turns: turn + 1,
         promptTokens: totalPromptTokens,
         completionTokens: totalCompletionTokens,
+        reasoningContent: result.reasoningContent,
       };
     }
 
@@ -169,6 +172,7 @@ export async function runSubAgent(
         turns: turn + 1,
         promptTokens: totalPromptTokens,
         completionTokens: totalCompletionTokens,
+        reasoningContent: finalResult.reasoningContent,
       };
     }
   }

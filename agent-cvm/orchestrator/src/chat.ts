@@ -129,14 +129,6 @@ export async function handleChatMessage(
     ? `${personalizedPrompt}\n\n${memoryContext}`
     : personalizedPrompt;
 
-  // Diagnostic logging — identify what's contributing to system prompt size
-  console.log(`[prompt-diag] SYSTEM_PROMPT=${SYSTEM_PROMPT.length} personalizedPrompt=${personalizedPrompt.length} memoryContext=${memoryContext.length} systemPrompt=${systemPrompt.length}`);
-  if (personalityTone) console.log(`[prompt-diag]   personalityTone len=${personalityTone.length}`);
-  if (personalityInstructions) console.log(`[prompt-diag]   personalityInstructions len=${personalityInstructions.length}`);
-  if (systemPrompt.length > 5000) {
-    console.warn(`[prompt-diag] WARNING: systemPrompt is ${systemPrompt.length} chars! First 500: "${systemPrompt.slice(0, 500)}" Last 500: "${systemPrompt.slice(-500)}"`);
-  }
-
   // Build prompt from conversation history
   const history = await getHistory(activeConvId);
   const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string; tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }> = [
@@ -197,7 +189,7 @@ export async function handleChatMessage(
       id: autoResponseId,
       type: 'chat.response',
       timestamp: Date.now(),
-      payload: { content: autoResponseContent, model: subResult.model },
+      payload: { content: autoResponseContent, model: subResult.model, reasoningContent: subResult.reasoningContent },
     };
   }
 
@@ -208,6 +200,7 @@ export async function handleChatMessage(
   // Tool calling loop (max iterations to prevent infinite loops)
   let responseContent = '';
   let usedModel: string | undefined;
+  let reasoningContent: string | undefined;
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     try {
@@ -222,6 +215,7 @@ export async function handleChatMessage(
       // If no tool calls, we have the final response
       if (!result.toolCalls || result.toolCalls.length === 0) {
         responseContent = result.content;
+        reasoningContent = result.reasoningContent;
         break;
       }
 
@@ -279,6 +273,7 @@ export async function handleChatMessage(
       if (iteration === MAX_TOOL_ITERATIONS - 1) {
         const finalResult = await callInference(messages, model);
         responseContent = finalResult.content;
+        reasoningContent = finalResult.reasoningContent;
         usedModel = finalResult.model;
         if (finalResult.promptTokens || finalResult.completionTokens) {
           trackUsage(finalResult.model, 'default', finalResult.promptTokens || 0, finalResult.completionTokens || 0);
@@ -313,7 +308,7 @@ export async function handleChatMessage(
     id: responseId,
     type: 'chat.response',
     timestamp: Date.now(),
-    payload: { content: responseContent, model: usedModel },
+    payload: { content: responseContent, model: usedModel, reasoningContent },
   };
 }
 
@@ -339,6 +334,7 @@ async function handleVisionMessage(
 
   let responseContent = '';
   let usedModel = '';
+  let visionReasoningContent: string | undefined;
 
   try {
     // Use the first image for vision inference (vision API typically handles one image)
@@ -352,6 +348,7 @@ async function handleVisionMessage(
     const result = await callVisionInference(dataUri, prompt);
     responseContent = result.content;
     usedModel = result.model;
+    visionReasoningContent = result.reasoningContent;
   } catch (err) {
     console.error('[chat] Vision inference error:', err);
     responseContent = 'I apologize, but I encountered an error analyzing the image. Please try again.';
@@ -372,6 +369,6 @@ async function handleVisionMessage(
     id: responseId,
     type: 'chat.response',
     timestamp: Date.now(),
-    payload: { content: responseContent, model: usedModel },
+    payload: { content: responseContent, model: usedModel, reasoningContent: visionReasoningContent },
   };
 }

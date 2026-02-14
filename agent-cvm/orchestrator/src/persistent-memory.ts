@@ -237,6 +237,7 @@ const EXCLUDED_PREF_KEYS = new Set([
   'user_full_name',
   'user_preferred_name',
   'agent_name',
+  'agent_avatar',
   'usage_limit_daily',
   'usage_limit_monthly',
 ]);
@@ -254,10 +255,6 @@ export async function getRelevantMemories(userMessage: string, limit = 5): Promi
     const query = terms.slice(0, 8).join(' OR ');
     try {
       const memories = await searchMemories(query, undefined, limit);
-      console.log(`[memory-diag] searchMemories returned ${memories.length} results for query="${query}"`);
-      for (const m of memories) {
-        console.log(`[memory-diag]   memory id=${m.id} category=${m.category} len=${m.content.length} preview="${m.content.slice(0, 100)}"`);
-      }
       if (memories.length > 0) {
         parts.push('## What you remember about the user:');
         for (const m of memories) {
@@ -276,10 +273,6 @@ export async function getRelevantMemories(userMessage: string, limit = 5): Promi
   const prefs = await getAllPreferences();
   const allPrefEntries = Object.entries(prefs);
   const prefEntries = allPrefEntries.filter(([key]) => !EXCLUDED_PREF_KEYS.has(key));
-  console.log(`[memory-diag] getAllPreferences returned ${allPrefEntries.length} total, ${prefEntries.length} after filtering`);
-  for (const [key, value] of allPrefEntries) {
-    console.log(`[memory-diag]   pref key="${key}" len=${value.length} excluded=${EXCLUDED_PREF_KEYS.has(key)} preview="${value.slice(0, 100)}"`);
-  }
   if (prefEntries.length > 0) {
     parts.push('## User preferences:');
     for (const [key, value] of prefEntries) {

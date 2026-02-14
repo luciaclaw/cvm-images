@@ -100,6 +100,8 @@ export interface InferenceResult {
   finishReason: string;
   promptTokens?: number;
   completionTokens?: number;
+  /** Raw reasoning steps from reasoning models (e.g. Kimi K2.5) */
+  reasoningContent?: string;
 }
 
 // --- Vision inference ---
@@ -118,6 +120,7 @@ export interface VisionMessage {
 export interface VisionResult {
   content: string;
   model: string;
+  reasoningContent?: string;
 }
 
 export async function callVisionInference(
@@ -153,10 +156,12 @@ export async function callVisionInference(
   const data: ChatCompletionResponse = await response.json();
   const choice = data.choices[0];
   const visionContent = choice?.message?.content || choice?.message?.reasoning_content || '';
+  const visionReasoning = choice?.message?.reasoning_content || undefined;
 
   return {
     content: visionContent,
     model: data.model || VISION_MODEL,
+    reasoningContent: visionReasoning,
   };
 }
 
@@ -235,6 +240,7 @@ export async function callInference(
 
   // Some models (e.g. GLM-5) put text in reasoning_content instead of content
   const textContent = message?.content || message?.reasoning_content || '';
+  const reasoningContent = message?.reasoning_content || undefined;
 
   const result: InferenceResult = {
     content: textContent,
@@ -242,6 +248,7 @@ export async function callInference(
     finishReason: choice?.finish_reason || 'stop',
     promptTokens: data.usage?.prompt_tokens,
     completionTokens: data.usage?.completion_tokens,
+    reasoningContent,
   };
 
   if (message?.tool_calls && message.tool_calls.length > 0) {
