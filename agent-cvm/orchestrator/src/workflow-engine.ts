@@ -21,6 +21,8 @@ import { callInference } from './inference.js';
 import { getActiveSendFn } from './chat.js';
 import { sendPushNotification } from './push.js';
 import { getAllTools, getToolsForInference } from './tool-registry.js';
+import { getModelForRole, type ModelRole } from './model-registry.js';
+import { trackUsage } from './token-tracker.js';
 
 // ─── DAG Validation ────────────────────────────────────────────────
 
@@ -587,13 +589,22 @@ async function runStep(
         output = result.result;
       } else if (step.type === 'llm_inference') {
         const resolvedPrompt = resolveTemplate(step.prompt, context) as string;
+        // Resolve model: if step.model looks like a role name, look it up in the registry
+        let modelId = step.model;
+        const validRoles: ModelRole[] = ['default', 'reasoning', 'uncensored', 'coding', 'vision'];
+        if (modelId && validRoles.includes(modelId as ModelRole)) {
+          modelId = getModelForRole(modelId as ModelRole);
+        }
         const result = await callInference(
           [
             { role: 'system', content: 'You are Lucia, executing a workflow step. Respond concisely.' },
             { role: 'user', content: resolvedPrompt },
           ],
-          step.model,
+          modelId,
         );
+        if (result.promptTokens || result.completionTokens) {
+          trackUsage(result.model, 'default', result.promptTokens || 0, result.completionTokens || 0);
+        }
         output = result.content;
       } else if (step.type === 'delay') {
         await new Promise((r) => setTimeout(r, step.durationMs));
@@ -660,6 +671,13 @@ async function runAgentTurn(
   const resolvedPrompt = resolveTemplate(step.prompt, context) as string;
   const maxTurns = step.maxTurns || 5;
 
+  // Resolve model: if step.model looks like a role name, look it up in the registry
+  let modelId = step.model;
+  const validRoles: ModelRole[] = ['default', 'reasoning', 'uncensored', 'coding', 'vision'];
+  if (modelId && validRoles.includes(modelId as ModelRole)) {
+    modelId = getModelForRole(modelId as ModelRole);
+  }
+
   // Filter tools based on allowedTools patterns
   let tools = getToolsForInference();
   if (step.allowedTools && step.allowedTools.length > 0) {
@@ -681,7 +699,12 @@ async function runAgentTurn(
   let totalToolCalls = 0;
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    const result = await callInference(messages, step.model, hasTools ? tools : undefined);
+    const result = await callInference(messages, modelId, hasTools ? tools : undefined);
+
+    // Track usage
+    if (result.promptTokens || result.completionTokens) {
+      trackUsage(result.model, 'default', result.promptTokens || 0, result.completionTokens || 0);
+    }
 
     if (!result.toolCalls || result.toolCalls.length === 0) {
       return { response: result.content, toolCallsMade: totalToolCalls, turns: turn + 1 };
@@ -707,7 +730,10 @@ async function runAgentTurn(
 
     // On last turn, get final response without tools
     if (turn === maxTurns - 1) {
-      const finalResult = await callInference(messages, step.model);
+      const finalResult = await callInference(messages, modelId);
+      if (finalResult.promptTokens || finalResult.completionTokens) {
+        trackUsage(finalResult.model, 'default', finalResult.promptTokens || 0, finalResult.completionTokens || 0);
+      }
       return { response: finalResult.content, toolCallsMade: totalToolCalls, turns: turn + 1 };
     }
   }

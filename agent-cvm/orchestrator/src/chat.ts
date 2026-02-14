@@ -15,6 +15,8 @@ import { getToolsForInference, getAllTools } from './tool-registry.js';
 import { executeTool } from './tool-executor.js';
 import { getRelevantMemories, extractAndStoreMemories, getPreference } from './persistent-memory.js';
 import { getServiceCredential } from './vault.js';
+import { detectAutoRoute, runSubAgent } from './sub-agent.js';
+import { checkLimits, trackUsage } from './token-tracker.js';
 
 const IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -152,6 +154,45 @@ export async function handleChatMessage(
     };
   }
 
+  // Check usage limits before inference
+  const limitStatus = checkLimits();
+  if (limitStatus.exceeded) {
+    const waitSec = Math.ceil((limitStatus.cooldownUntil! - Date.now()) / 1000);
+    const limitMsg = `Usage limit reached. You can continue in ${waitSec} seconds.`;
+    const limitResponseId = crypto.randomUUID();
+    await addToHistory(
+      { messageId: limitResponseId, role: 'assistant', content: limitMsg, timestamp: Date.now() },
+      activeConvId,
+    );
+    return {
+      id: limitResponseId,
+      type: 'chat.response',
+      timestamp: Date.now(),
+      payload: { content: limitMsg },
+    };
+  }
+
+  // Auto-route to sub-agent if content matches routing patterns
+  const autoRole = detectAutoRoute(content);
+  if (autoRole) {
+    const subResult = await runSubAgent(autoRole, augmentedContent, activeConvId);
+    const autoResponseContent = `*[${autoRole} model: ${subResult.model}]*\n\n${subResult.response}`;
+    const autoResponseId = crypto.randomUUID();
+    await addToHistory(
+      { messageId: autoResponseId, role: 'assistant', content: autoResponseContent, timestamp: Date.now() },
+      activeConvId,
+    );
+    extractAndStoreMemories(content, autoResponseContent, activeConvId).catch((err) => {
+      console.error('[chat] Memory extraction failed:', err);
+    });
+    return {
+      id: autoResponseId,
+      type: 'chat.response',
+      timestamp: Date.now(),
+      payload: { content: autoResponseContent, model: subResult.model },
+    };
+  }
+
   // Get available tools for inference
   const tools = getToolsForInference();
   const hasTools = tools.length > 0;
@@ -164,6 +205,11 @@ export async function handleChatMessage(
     try {
       const result = await callInference(messages, model, hasTools ? tools : undefined);
       usedModel = result.model;
+
+      // Track token usage
+      if (result.promptTokens || result.completionTokens) {
+        trackUsage(result.model, 'default', result.promptTokens || 0, result.completionTokens || 0);
+      }
 
       // If no tool calls, we have the final response
       if (!result.toolCalls || result.toolCalls.length === 0) {
@@ -218,6 +264,9 @@ export async function handleChatMessage(
         const finalResult = await callInference(messages, model);
         responseContent = finalResult.content;
         usedModel = finalResult.model;
+        if (finalResult.promptTokens || finalResult.completionTokens) {
+          trackUsage(finalResult.model, 'default', finalResult.promptTokens || 0, finalResult.completionTokens || 0);
+        }
       }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);

@@ -5,6 +5,8 @@
  * Default backend: Phala Confidential AI API (https://api.redpill.ai/v1).
  */
 
+import { getModelForRole } from './model-registry.js';
+
 const INFERENCE_URL = process.env.INFERENCE_URL || 'http://localhost:8000';
 
 interface InferenceMessage {
@@ -33,6 +35,11 @@ interface ChatCompletionResponse {
     finish_reason: string;
   }>;
   model?: string;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  };
 }
 
 interface ToolDefinition {
@@ -61,7 +68,7 @@ interface ModelsResponse {
 }
 
 /** Current model selection (per-session, can be changed by user) */
-let currentModel = process.env.MODEL_NAME || 'z-ai/glm-5';
+let currentModel = process.env.MODEL_NAME || 'openai/gpt-oss-120b';
 
 export function getCurrentModel(): string {
   return currentModel;
@@ -90,11 +97,13 @@ export interface InferenceResult {
     arguments: Record<string, unknown>;
   }>;
   finishReason: string;
+  promptTokens?: number;
+  completionTokens?: number;
 }
 
 // --- Vision inference ---
 
-const VISION_MODEL = 'qwen/qwen3-vl-30b-a3b-instruct';
+const VISION_MODEL = getModelForRole('vision');
 
 export type VisionContentPart =
   | { type: 'text'; text: string }
@@ -230,6 +239,8 @@ export async function callInference(
     content: textContent,
     model: data.model || useModel,
     finishReason: choice?.finish_reason || 'stop',
+    promptTokens: data.usage?.prompt_tokens,
+    completionTokens: data.usage?.completion_tokens,
   };
 
   if (message?.tool_calls && message.tool_calls.length > 0) {

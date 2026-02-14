@@ -31,6 +31,8 @@ import type {
   WorkflowDeletePayload,
   WorkflowListPayload,
   WorkflowExecutePayload,
+  UsageListPayload,
+  UsageSetLimitsPayload,
 } from '@luciaclaw/protocol';
 import { handleChatMessage } from './chat.js';
 import { handleToolConfirmation } from './tools.js';
@@ -44,6 +46,8 @@ import { handleScheduleCreate, handleScheduleUpdate, handleScheduleDelete, handl
 import { handleMemoryList, handleMemorySearch, handleMemoryDelete } from './memory-handler.js';
 import { handlePreferencesSet, handlePreferencesList } from './preferences-handler.js';
 import { handleWorkflowCreate, handleWorkflowUpdate, handleWorkflowDelete, handleWorkflowList, handleWorkflowExecute } from './workflow-handler.js';
+import { handleUsageList, handleUsageSetLimits } from './usage-handler.js';
+import { getAllModelConfigs } from './model-registry.js';
 
 export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelope | null> {
   switch (msg.type) {
@@ -138,6 +142,13 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
     case 'preferences.list':
       return handlePreferencesList(msg.payload as PreferencesListPayload);
 
+    // Usage tracking
+    case 'usage.list':
+      return handleUsageList(msg.payload as UsageListPayload);
+
+    case 'usage.set_limits':
+      return handleUsageSetLimits(msg.payload as UsageSetLimitsPayload);
+
     default:
       console.warn('[router] Unknown message type:', msg.type);
       return {
@@ -149,38 +160,43 @@ export async function routeMessage(msg: MessageEnvelope): Promise<MessageEnvelop
   }
 }
 
-/** Static metadata for TEE-attested models — always available as fallback */
-const TEE_MODELS = [
-  { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', provider: 'openai', contextLength: 131072, inputPrice: 0.15, outputPrice: 0.60 },
-  { id: 'moonshotai/kimi-k2.5', name: 'Kimi K2.5', provider: 'moonshotai', contextLength: 131072, inputPrice: 0.20, outputPrice: 0.60 },
-  { id: 'phala/uncensored-24b', name: 'Uncensored 24B', provider: 'phala', contextLength: 32768, inputPrice: 0.10, outputPrice: 0.30 },
-  { id: 'z-ai/glm-5', name: 'GLM-5', provider: 'z-ai', contextLength: 131072, inputPrice: 0.50, outputPrice: 1.50 },
-];
+/** Build static model list from the central model registry */
+function getRegistryModels(): Array<{ id: string; name: string; provider: string; contextLength: number; inputPrice: number; outputPrice: number }> {
+  return getAllModelConfigs().map((m) => ({
+    id: m.id,
+    name: m.name,
+    provider: m.provider,
+    contextLength: m.contextLength,
+    inputPrice: m.inputPricePerMillion,
+    outputPrice: m.outputPricePerMillion,
+  }));
+}
 
 async function handleModelsList(payload: ModelsListPayload): Promise<MessageEnvelope> {
   const currentModel = getCurrentModel();
+  const registryModels = getRegistryModels();
 
   try {
     const response = await fetchModels();
     const upstreamMap = new Map(response.data.map((m: { id: string }) => [m.id, m]));
 
-    // Always return all whitelisted models; use upstream data when available, fallback to static
-    const models = TEE_MODELS.map((tee) => {
-      const upstream = upstreamMap.get(tee.id) as {
+    // Always return all registry models; enrich with upstream data when available
+    const models = registryModels.map((reg) => {
+      const upstream = upstreamMap.get(reg.id) as {
         id: string; name?: string; context_length?: number;
         pricing?: { prompt?: string; completion?: string };
       } | undefined;
       if (upstream) {
         return {
           id: upstream.id,
-          name: upstream.name || tee.name,
-          provider: tee.provider,
-          contextLength: upstream.context_length || tee.contextLength,
-          inputPrice: parseFloat(upstream.pricing?.prompt || '0') * 1_000_000 || tee.inputPrice,
-          outputPrice: parseFloat(upstream.pricing?.completion || '0') * 1_000_000 || tee.outputPrice,
+          name: upstream.name || reg.name,
+          provider: reg.provider,
+          contextLength: upstream.context_length || reg.contextLength,
+          inputPrice: parseFloat(upstream.pricing?.prompt || '0') * 1_000_000 || reg.inputPrice,
+          outputPrice: parseFloat(upstream.pricing?.completion || '0') * 1_000_000 || reg.outputPrice,
         };
       }
-      return { ...tee };
+      return { ...reg };
     });
 
     return {
@@ -190,13 +206,12 @@ async function handleModelsList(payload: ModelsListPayload): Promise<MessageEnve
       payload: { models, currentModel },
     };
   } catch (err) {
-    console.error('[router] Failed to fetch models from upstream, using static list:', err);
-    // Upstream unavailable: return all whitelisted models with static metadata
+    console.error('[router] Failed to fetch models from upstream, using registry:', err);
     return {
       id: crypto.randomUUID(),
       type: 'models.response',
       timestamp: Date.now(),
-      payload: { models: TEE_MODELS, currentModel },
+      payload: { models: registryModels, currentModel },
     };
   }
 }

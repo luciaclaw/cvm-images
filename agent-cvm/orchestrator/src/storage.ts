@@ -165,6 +165,19 @@ export function getDb(): Database.Database {
       last_message_at INTEGER NOT NULL,
       PRIMARY KEY (channel, peer_id)
     );
+
+    -- Token usage tracking (unencrypted — aggregate counts only, no PII)
+    CREATE TABLE IF NOT EXISTS token_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      model TEXT NOT NULL,
+      role TEXT NOT NULL,
+      prompt_tokens INTEGER NOT NULL,
+      completion_tokens INTEGER NOT NULL,
+      credits REAL NOT NULL,
+      timestamp INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_token_usage_ts ON token_usage(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_model ON token_usage(model, timestamp);
   `);
 
   // Migrate old single-PK credentials table to compound PK (service, account)

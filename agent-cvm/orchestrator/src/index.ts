@@ -22,9 +22,11 @@ import { registerMediaTools } from './tools/media.js';
 import { registerWorkflowTools } from './tools/workflow.js';
 import { registerCronTools } from './tools/cron.js';
 import { registerWebhookTools } from './tools/webhook.js';
+import { registerSubAgentTools } from './tools/sub-agent.js';
 import { recoverRunningExecutions } from './workflow-engine.js';
 import { syncLlmConfigOnStartup } from './credentials-handler.js';
 import { initTelegramListener } from './telegram-listener.js';
+import { initTokenTracker } from './token-tracker.js';
 
 // Register all tools
 registerGmailTools();
@@ -43,6 +45,10 @@ registerMediaTools();
 registerWorkflowTools();
 registerCronTools();
 registerWebhookTools();
+registerSubAgentTools();
+
+// Initialize token usage tracking table
+initTokenTracker();
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
