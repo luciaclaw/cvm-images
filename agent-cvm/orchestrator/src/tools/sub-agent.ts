@@ -5,10 +5,17 @@
  * - agent.reason: Complex reasoning (Kimi K2.5)
  * - agent.code: Coding tasks (Claude Opus)
  * - agent.uncensored: Unrestricted responses (Uncensored 24B)
+ * - agent.debug: Diagnostic analysis (Claude Opus — no tools, pure analyst)
  */
 
 import { registerTool } from '../tool-registry.js';
 import { runSubAgent } from '../sub-agent.js';
+import { collectDiagnostics, buildDebugSystemPrompt } from '../debug-collector.js';
+import { callInference } from '../inference.js';
+import { getModelForRole } from '../model-registry.js';
+import { trackUsage } from '../token-tracker.js';
+import { getCurrentConversationId } from '../memory.js';
+import { getExecutionStatus } from '../workflow-engine.js';
 
 export function registerSubAgentTools(): void {
   registerTool({
@@ -106,6 +113,116 @@ export function registerSubAgentTools(): void {
         response: result.response,
         model: result.model,
         tokensUsed: result.promptTokens + result.completionTokens,
+      };
+    },
+  });
+
+  registerTool({
+    name: 'agent.debug',
+    description:
+      'Diagnose errors and failures by collecting recent logs, workflow/cron errors, and conversation context, then sending them to Claude Opus for root cause analysis. Use when something went wrong, a workflow failed, or the user asks "what happened" / "debug this".',
+    parameters: {
+      type: 'object',
+      required: [],
+      properties: {
+        issue: {
+          type: 'string',
+          description: 'Description of the issue to investigate',
+        },
+        executionId: {
+          type: 'string',
+          description: 'Optional workflow execution ID for per-step breakdown',
+        },
+        timeWindowMinutes: {
+          type: 'number',
+          description: 'How far back to look in logs (default: 10 minutes)',
+        },
+      },
+    },
+    requiredCredentials: [],
+    riskLevel: 'low',
+    requiresConfirmation: false,
+    async execute(args) {
+      const issue = args.issue as string | undefined;
+      const executionId = args.executionId as string | undefined;
+      const timeWindowMinutes = (args.timeWindowMinutes as number) || 10;
+      const logWindowMs = timeWindowMinutes * 60 * 1000;
+
+      const conversationId = await getCurrentConversationId();
+      const bundle = await collectDiagnostics(conversationId, { logWindowMs });
+
+      // Build user prompt with labeled sections
+      const sections: string[] = [];
+
+      if (issue) {
+        sections.push(`## Reported Issue\n${issue}`);
+      }
+
+      if (bundle.errorLogs !== '(no log entries)') {
+        sections.push(`## Error Logs (last ${timeWindowMinutes} min)\n${bundle.errorLogs}`);
+      }
+
+      if (bundle.recentLogs !== '(no log entries)') {
+        sections.push(`## Recent Logs (last ${timeWindowMinutes} min)\n${bundle.recentLogs}`);
+      }
+
+      if (bundle.workflowErrors !== '(no failed workflow executions)') {
+        sections.push(`## Failed Workflow Executions\n${bundle.workflowErrors}`);
+      }
+
+      // Per-step breakdown for a specific execution
+      if (executionId) {
+        try {
+          const execStatus = await getExecutionStatus(executionId);
+          if (execStatus) {
+            sections.push(
+              `## Execution ${executionId} Details\n${JSON.stringify(execStatus, null, 2)}`,
+            );
+          }
+        } catch {
+          // Non-critical — proceed without per-step details
+        }
+      }
+
+      if (bundle.cronErrors !== '(no cron errors)') {
+        sections.push(`## Cron Job Errors\n${bundle.cronErrors}`);
+      }
+
+      if (bundle.conversationContext !== '(no conversation history)') {
+        sections.push(`## Recent Conversation\n${bundle.conversationContext}`);
+      }
+
+      sections.push(`## System Info\n${bundle.systemInfo}`);
+
+      const userPrompt = sections.join('\n\n');
+      const systemPrompt = buildDebugSystemPrompt();
+      const modelId = getModelForRole('debug');
+
+      const result = await callInference(
+        [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        modelId,
+      );
+
+      // Track usage for cost visibility
+      if (result.promptTokens || result.completionTokens) {
+        trackUsage(modelId, 'debug', result.promptTokens || 0, result.completionTokens || 0);
+      }
+
+      const tokensUsed = (result.promptTokens || 0) + (result.completionTokens || 0);
+
+      return {
+        diagnosis: result.content,
+        model: modelId,
+        tokensUsed,
+        diagnosticSummary: {
+          errorLogCount: bundle.errorLogs === '(no log entries)' ? 0 : bundle.errorLogs.split('\n').length,
+          hasWorkflowErrors: bundle.workflowErrors !== '(no failed workflow executions)',
+          hasCronErrors: bundle.cronErrors !== '(no cron errors)',
+          timeWindowMinutes,
+        },
       };
     },
   });

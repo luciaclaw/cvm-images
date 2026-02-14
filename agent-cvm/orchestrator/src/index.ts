@@ -5,6 +5,9 @@
  * Registers available tools for the agent to use.
  */
 
+import { installLogCapture } from './log-buffer.js';
+installLogCapture();
+
 import { startServer } from './server.js';
 import { registerGmailTools } from './tools/gmail.js';
 import { registerCalendarTools } from './tools/calendar.js';

@@ -31,7 +31,7 @@ async function downloadToBase64(url: string, headers?: Record<string, string>): 
 /**
  * Download a Telegram file by file_id via Bot API.
  */
-async function downloadTelegramFile(fileId: string): Promise<{ base64: string; filename: string }> {
+export async function downloadTelegramFile(fileId: string): Promise<{ base64: string; filename: string }> {
   const token = await getServiceCredential('telegram');
   if (!token) throw new Error('Telegram not connected. Cannot download voice message.');
 

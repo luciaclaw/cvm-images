@@ -5,7 +5,7 @@
  * Pricing is per 1M tokens in USD.
  */
 
-export type ModelRole = 'default' | 'reasoning' | 'uncensored' | 'coding' | 'vision';
+export type ModelRole = 'default' | 'reasoning' | 'uncensored' | 'coding' | 'vision' | 'debug';
 
 export interface ModelConfig {
   /** Model identifier (e.g., "openai/gpt-oss-120b") */
@@ -83,6 +83,17 @@ const MODEL_REGISTRY: Record<ModelRole, ModelConfig> = {
     outputPricePerMillion: 0.60,
     supportsTools: false,
     tee: true,
+  },
+  debug: {
+    id: 'anthropic/claude-opus-4.6',
+    role: 'debug',
+    name: 'Claude Opus 4.6',
+    provider: 'anthropic',
+    contextLength: 200000,
+    inputPricePerMillion: 10.00,
+    outputPricePerMillion: 37.50,
+    supportsTools: false,
+    tee: false,
   },
 };
 
