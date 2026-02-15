@@ -16,7 +16,14 @@ export async function storeMemory(
   content: string,
   category: MemoryCategory = 'general',
   conversationId?: string,
-): Promise<MemoryEntry> {
+): Promise<MemoryEntry | null> {
+  // Deduplicate: check if a similar memory already exists via FTS5
+  const duplicate = await findDuplicateMemory(content);
+  if (duplicate) {
+    console.log(`[memory] Skipping duplicate: "${content.slice(0, 60)}…" (matches id=${duplicate.id})`);
+    return null;
+  }
+
   const db = getDb();
   const id = crypto.randomUUID();
   const now = Date.now();
@@ -38,6 +45,90 @@ export async function storeMemory(
   }
 
   return { id, content, category, conversationId, createdAt: now, accessCount: 0 };
+}
+
+/**
+ * Check if a memory with substantially similar content already exists.
+ * Uses FTS5 to find candidates, then compares normalized text.
+ */
+async function findDuplicateMemory(content: string): Promise<MemoryEntry | null> {
+  const db = getDb();
+
+  // Extract significant terms for FTS5 search
+  const terms = content
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .split(/\s+/)
+    .filter((t) => t.length >= 3);
+  if (terms.length === 0) return null;
+
+  // Use AND to find memories containing all significant terms
+  const ftsQuery = terms.slice(0, 6).join(' AND ');
+
+  try {
+    const rows = db
+      .prepare(
+        `SELECT m.id, m.content_enc, m.category, m.conversation_id,
+                m.created_at, m.access_count
+         FROM memory_fts f
+         JOIN memories m ON m.rowid = f.rowid
+         WHERE memory_fts MATCH ?
+         LIMIT 5`,
+      )
+      .all(ftsQuery) as Array<{
+      id: string;
+      content_enc: string;
+      category: MemoryCategory;
+      conversation_id: string | null;
+      created_at: number;
+      access_count: number;
+    }>;
+
+    const normalizedNew = normalizeForComparison(content);
+
+    for (const row of rows) {
+      const existing = await decrypt(row.content_enc);
+      if (existing === null) continue;
+      const normalizedExisting = normalizeForComparison(existing);
+
+      // Exact match after normalization
+      if (normalizedNew === normalizedExisting) {
+        return {
+          id: row.id,
+          content: existing,
+          category: row.category,
+          conversationId: row.conversation_id ?? undefined,
+          createdAt: row.created_at,
+          accessCount: row.access_count,
+        };
+      }
+
+      // One is a substring of the other (e.g. "User's name is Alex" vs "name is Alex")
+      if (normalizedNew.includes(normalizedExisting) || normalizedExisting.includes(normalizedNew)) {
+        return {
+          id: row.id,
+          content: existing,
+          category: row.category,
+          conversationId: row.conversation_id ?? undefined,
+          createdAt: row.created_at,
+          accessCount: row.access_count,
+        };
+      }
+    }
+  } catch {
+    // FTS5 query failed — not critical, allow the insert
+  }
+
+  return null;
+}
+
+/** Normalize text for comparison: lowercase, strip punctuation, collapse whitespace */
+function normalizeForComparison(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export async function searchMemories(
@@ -301,6 +392,7 @@ Only extract genuinely useful long-term information. Do NOT extract:
 - Trivial greetings or small talk
 - Information that is only relevant to the current conversation
 - Things the user already asked you to do (those are tasks, not memories)
+- Information that is already listed in the "Already known" section below — do NOT re-extract facts you already know
 
 Examples of good memories:
 - {"content": "User's name is Alex", "category": "fact"}
@@ -316,11 +408,22 @@ export async function extractAndStoreMemories(
   conversationId: string,
 ): Promise<void> {
   try {
+    // Fetch existing memories relevant to this exchange so the LLM can avoid duplicates
+    let existingContext = '';
+    try {
+      const existing = await searchMemories(userMessage, undefined, 10);
+      if (existing.length > 0) {
+        existingContext = '\n\nAlready known:\n' + existing.map((m) => `- ${m.content}`).join('\n');
+      }
+    } catch {
+      // FTS search failed — continue without existing context
+    }
+
     const messages = [
       { role: 'system' as const, content: EXTRACTION_PROMPT },
       {
         role: 'user' as const,
-        content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}`,
+        content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}${existingContext}`,
       },
     ];
 
@@ -356,11 +459,11 @@ export async function extractAndStoreMemories(
         }
       }
 
-      // Auto-extract name as a preference
+      // Auto-extract name as a preference (use user_full_name to match chat.ts)
       if (category === 'fact') {
-        const nameMatch = item.content.match(/(?:name|called)\s+(?:is\s+)?(\w+)/i);
+        const nameMatch = item.content.match(/(?:name|called)\s+(?:is\s+)?(.+)/i);
         if (nameMatch) {
-          await setPreference('name', nameMatch[1]);
+          await setPreference('user_full_name', nameMatch[1].trim().replace(/\.?\s*$/, ''));
         }
       }
     }

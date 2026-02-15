@@ -37,6 +37,9 @@ export function registerMemoryTools(): void {
     async execute(args) {
       const { content, category } = args as { content: string; category?: MemoryCategory };
       const entry = await storeMemory(content, category || 'general');
+      if (!entry) {
+        return { stored: false, reason: 'duplicate', message: 'A similar memory already exists.' };
+      }
       return { stored: true, id: entry.id, content: entry.content, category: entry.category };
     },
   });
@@ -94,7 +97,7 @@ export function registerMemoryTools(): void {
       type: 'object',
       required: ['key', 'value'],
       properties: {
-        key: { type: 'string', description: 'Preference key (e.g., "name", "timezone")' },
+        key: { type: 'string', description: 'Preference key (e.g., "user_full_name", "user_preferred_name", "user_timezone", "personality_tone", "personality_instructions")' },
         value: { type: 'string', description: 'Preference value' },
       },
     },
