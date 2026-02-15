@@ -7,7 +7,7 @@
 
 services:
   lucia-agent:
-    image: andreaspensold/lucia-agent:v0.7.6
+    image: andreaspensold/lucia-agent:v0.7.7
     ports:
       - "8080:8080"
       - "8000:8000"

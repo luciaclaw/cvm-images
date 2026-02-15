@@ -9,6 +9,7 @@ import { evaluatePolicy } from './policy.js';
 import { getTool } from './tool-registry.js';
 import { waitForConfirmation } from './tools.js';
 import { sendPushNotification } from './push.js';
+import { getActiveSendFn } from './chat.js';
 
 /** Callback to send messages to the connected client */
 type SendFn = (msg: MessageEnvelope) => void;
@@ -31,38 +32,46 @@ export async function executeTool(
 
   // 2. Request user confirmation if needed
   if (policy.requiresConfirmation) {
-    const tool = getTool(name)!;
-    const description = buildConfirmationDescription(name, args);
+    // Auto-approve when no PWA client is connected (automated context:
+    // cron jobs, workflows, Telegram listener, webhooks). The user
+    // pre-approved by creating the automation.
+    const hasClient = getActiveSendFn() !== null;
 
-    // Send confirmation request to PWA
-    sendToClient({
-      id: crypto.randomUUID(),
-      type: 'tool.confirm.request',
-      timestamp: Date.now(),
-      payload: {
-        toolCall,
+    if (hasClient) {
+      const description = buildConfirmationDescription(name, args);
+
+      // Send confirmation request to PWA
+      sendToClient({
+        id: crypto.randomUUID(),
+        type: 'tool.confirm.request',
+        timestamp: Date.now(),
+        payload: {
+          toolCall,
+          description,
+          risk: policy.risk,
+          timeoutMs: DEFAULT_CONFIRMATION_TIMEOUT_MS,
+        },
+      });
+
+      // Also send push notification for confirmation
+      sendPushNotification(
+        'Action Requires Approval',
         description,
-        risk: policy.risk,
-        timeoutMs: DEFAULT_CONFIRMATION_TIMEOUT_MS,
-      },
-    });
+        '/chat',
+        [
+          { action: 'approve', title: 'Approve' },
+          { action: 'deny', title: 'Deny' },
+        ]
+      ).catch(() => {}); // Non-critical
 
-    // Also send push notification for confirmation
-    sendPushNotification(
-      'Action Requires Approval',
-      description,
-      '/chat',
-      [
-        { action: 'approve', title: 'Approve' },
-        { action: 'deny', title: 'Deny' },
-      ]
-    ).catch(() => {}); // Non-critical
+      // Wait for user response
+      const approved = await waitForConfirmation(callId, DEFAULT_CONFIRMATION_TIMEOUT_MS);
 
-    // Wait for user response
-    const approved = await waitForConfirmation(callId, DEFAULT_CONFIRMATION_TIMEOUT_MS);
-
-    if (!approved) {
-      return { success: false, error: 'Tool call denied by user or timed out' };
+      if (!approved) {
+        return { success: false, error: 'Tool call denied by user or timed out' };
+      }
+    } else {
+      console.log(`[tool-executor] Auto-approving ${name} (no PWA client connected)`);
     }
   }
 
